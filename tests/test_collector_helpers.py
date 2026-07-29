@@ -63,20 +63,94 @@ class CollectorHelperTests(unittest.TestCase):
         self.assertFalse(helpers["looks_like_infohash"]("a" * 39))
         self.assertFalse(helpers["looks_like_infohash"]("Movie Title"))
 
-    def test_hr_candidate_assignment_reports_exactly_covered_titles(self):
+    def test_torrent_payload_files_parses_multifile_manifest(self):
+        info = (
+            b"d5:filesl"
+            b"d6:lengthi14e4:pathl11:Episode.mkvee"
+            b"d6:lengthi7e4:pathl10:poster.jpgee"
+            b"e4:name7:Fixturee"
+        )
+        torrent = b"d4:info" + info + b"e"
+
+        self.assertEqual(
+            helpers["torrent_payload_files"](torrent),
+            [
+                {"name": "Fixture/Episode.mkv", "size": 14},
+                {"name": "Fixture/poster.jpg", "size": 7},
+            ],
+        )
+
+    def test_hr_candidate_assignment_requires_exact_verified_payload(self):
         torrents = [
             {
                 "hash": "a" * 40,
                 "name": "Way.of.Choices.2026.S01.2160p.WEB-DL",
+                "progress": 1,
+                "_file_list_verified": True,
+                "_exact_files": [
+                    {"name": "Way of Choices/E01.mkv", "size": 14}
+                ],
+            },
+            {
+                "hash": "b" * 40,
+                "name": "Way.of.Choices.2026.S01.2160p.WEB-DL.REPACK",
+                "progress": 1,
+                "_file_list_verified": True,
+                "_exact_files": [
+                    {"name": "Way of Choices/E01.mkv", "size": 15}
+                ],
             }
         ]
         assignments, covered_titles = helpers["assign_hr_candidates"](
             torrents,
-            {"way of choices 2026 s01", "missing release 2026"},
+            [
+                {
+                    "normalizedTitle": "way of choices 2026 s01",
+                    "payloadSignature": (
+                        ("e01.mkv", 14),
+                    ),
+                },
+                {
+                    "normalizedTitle": "missing release 2026",
+                    "payloadSignature": (
+                        ("missing.mkv", 99),
+                    ),
+                },
+            ],
         )
 
         self.assertEqual(assignments, {"a" * 40})
         self.assertEqual(covered_titles, {"way of choices 2026 s01"})
+
+    def test_hr_candidate_rejects_incomplete_or_unverified_qb_payload(self):
+        signature = (("e01.mkv", 14),)
+        torrents = [
+            {
+                "hash": "a" * 40,
+                "progress": 0.9,
+                "_file_list_verified": True,
+                "_exact_files": [{"name": "E01.mkv", "size": 14}],
+            },
+            {
+                "hash": "b" * 40,
+                "progress": 1,
+                "_file_list_verified": False,
+                "_exact_files": [{"name": "E01.mkv", "size": 14}],
+            },
+        ]
+
+        assignments, covered_titles = helpers["assign_hr_candidates"](
+            torrents,
+            [
+                {
+                    "normalizedTitle": "way of choices",
+                    "payloadSignature": signature,
+                }
+            ],
+        )
+
+        self.assertEqual(assignments, set())
+        self.assertEqual(covered_titles, set())
 
     def test_qb_file_cache_rejects_invalid_or_empty_entries(self):
         valid_hash = "a" * 40

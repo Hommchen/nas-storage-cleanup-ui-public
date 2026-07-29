@@ -422,6 +422,154 @@ class MediaMetadataTests(unittest.TestCase):
         self.assertEqual(stats["hrMissingLinkedRecords"], 0)
         self.assertEqual(stats["hrMissingUnassigned"], 1)
 
+    def test_official_video_sizes_uniquely_link_hr_without_title_match(self):
+        resource = raw_resource(
+            resource_id="res_choices",
+            title="完全不同的中文标题",
+            english="Completely Different English Title",
+            edition="S01 · 1 集",
+            media_type="电视剧",
+            library=True,
+            private=private_record(
+                identity="tv:path:choices",
+                task_hash="a" * 40,
+                path="/allowed/choices/E01.mkv",
+                inode=71,
+            ),
+        )
+        resource["_private"]["qbTasks"] = []
+        records = [
+            {
+                "id": "307598",
+                "title": "Fighter of the Destiny S01 2026 2160p WEB-DL",
+                "coveredByCandidate": False,
+                "videoSizes": [1024**3],
+            }
+        ]
+
+        resources, annotated, stats = annotate_hr_missing_resources(
+            [resource],
+            records,
+            {"version": 1, "entries": {}},
+        )
+
+        self.assertTrue(resources[0]["protected"])
+        self.assertEqual(
+            annotated[0]["linkedResourceTitle"],
+            "完全不同的中文标题",
+        )
+        self.assertEqual(stats["hrMissingUnassigned"], 0)
+
+    def test_official_video_sizes_do_not_link_ambiguous_media(self):
+        resources = []
+        for suffix, inode in (("first", 81), ("second", 82)):
+            resource = raw_resource(
+                resource_id=f"res_{suffix}",
+                title=f"不同标题 {suffix}",
+                english=f"Different Title {suffix}",
+                edition="电影",
+                media_type="电影",
+                library=True,
+                private=private_record(
+                    identity=f"movie:path:{suffix}",
+                    task_hash=(suffix[0] * 40),
+                    path=f"/allowed/{suffix}.mkv",
+                    inode=inode,
+                ),
+            )
+            resource["_private"]["qbTasks"] = []
+            resources.append(resource)
+        records = [
+            {
+                "id": "307598",
+                "title": "Fighter of the Destiny S01 2026 2160p WEB-DL",
+                "coveredByCandidate": False,
+                "videoSizes": [1024**3],
+            }
+        ]
+
+        _, annotated, stats = annotate_hr_missing_resources(
+            resources,
+            records,
+            {"version": 1, "entries": {}},
+        )
+
+        self.assertNotIn("linkedResourceTitle", annotated[0])
+        self.assertEqual(stats["hrMissingLinkedRecords"], 0)
+        self.assertEqual(stats["hrMissingUnassigned"], 1)
+
+    def test_official_video_sizes_override_a_wrong_title_identity(self):
+        wrong = raw_resource(
+            resource_id="res_wrong",
+            title="择天记",
+            english="Fighter of the Destiny",
+            edition="S01 · 1 集",
+            media_type="电视剧",
+            library=True,
+            private=private_record(
+                identity="tv:tmdb:282158",
+                task_hash="a" * 40,
+                path="/allowed/wrong/E01.mkv",
+                inode=91,
+            ),
+        )
+        actual = raw_resource(
+            resource_id="res_actual",
+            title="本地未识别标题",
+            english="Unrecognized Local Title",
+            edition="S01 · 1 集",
+            media_type="电视剧",
+            library=True,
+            private=private_record(
+                identity="tv:path:actual",
+                task_hash="b" * 40,
+                path="/allowed/actual/E01.mkv",
+                inode=92,
+            ),
+        )
+        for resource in (wrong, actual):
+            resource["_private"]["qbTasks"] = []
+        actual["_private"]["files"][0]["size"] = 2 * 1024**3
+        records = [
+            {
+                "id": "307598",
+                "title": "Fighter of the Destiny S01 2026 2160p WEB-DL",
+                "coveredByCandidate": False,
+                "videoSizes": [2 * 1024**3],
+            }
+        ]
+        pseudo = make_hr_metadata_resources(records)[0]
+        cache = {
+            "version": 1,
+            "entries": {
+                metadata_cache_key(pseudo): {
+                    "query": pseudo["englishTitle"],
+                    "kind": "tv",
+                    "status": "resolved",
+                    "checkedAt": "2026-07-29T00:00:00+00:00",
+                    "title": "择天记",
+                    "englishTitle": "Fighter of the Destiny",
+                    "year": "2026",
+                    "identity": "tv:tmdb:282158",
+                    "tmdbId": 282158,
+                }
+            },
+        }
+
+        resources, annotated, stats = annotate_hr_missing_resources(
+            [wrong, actual],
+            records,
+            cache,
+        )
+
+        self.assertFalse(resources[0]["protected"])
+        self.assertTrue(resources[1]["protected"])
+        self.assertEqual(
+            annotated[0]["linkedResourceTitle"],
+            "本地未识别标题",
+        )
+        self.assertEqual(stats["hrMissingUnassigned"], 0)
+
     def test_library_can_use_one_matching_qb_release_name(self):
         private = private_record(
             identity="movie:path:fixture",

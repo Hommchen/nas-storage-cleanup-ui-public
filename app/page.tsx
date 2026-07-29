@@ -1221,7 +1221,7 @@ export default function Home() {
                     {item.linkedResourceTitle
                       ? "媒体已锁定 · qB 待恢复"
                       : item.coveredByCandidate
-                        ? "发现候选 · 未验证恢复"
+                        ? "精确 payload 候选 · 待重检"
                         : "未定位恢复来源"}
                   </b>
                 </article>
