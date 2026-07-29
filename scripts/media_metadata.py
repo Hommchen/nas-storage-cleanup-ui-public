@@ -280,8 +280,7 @@ def annotate_hr_missing_resources(
         "hrMissingLinkedRecords": linked_records,
         "hrMissingLinkedResources": len(linked_resource_ids),
         "hrMissingUnassigned": sum(
-            not record.get("coveredByCandidate")
-            and not record.get("linkedResourceTitle")
+            not record.get("linkedResourceTitle")
             for record in annotated_records
         ),
     }

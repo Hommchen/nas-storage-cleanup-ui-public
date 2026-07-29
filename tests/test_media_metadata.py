@@ -398,6 +398,30 @@ class MediaMetadataTests(unittest.TestCase):
         self.assertEqual(stats["hrMissingLinkedResources"], 1)
         self.assertEqual(stats["hrMissingUnassigned"], 0)
 
+    def test_unlinked_hr_candidate_does_not_clear_global_delete_guard(self):
+        records = [
+            {
+                "id": "307598",
+                "title": (
+                    "Fighter of the Destiny S01 2026 2160p "
+                    "WEB-DL HEVC"
+                ),
+                "coveredByCandidate": True,
+            }
+        ]
+
+        resources, annotated, stats = annotate_hr_missing_resources(
+            [],
+            records,
+            {"version": 1, "entries": {}},
+        )
+
+        self.assertEqual(resources, [])
+        self.assertTrue(annotated[0]["coveredByCandidate"])
+        self.assertNotIn("linkedResourceTitle", annotated[0])
+        self.assertEqual(stats["hrMissingLinkedRecords"], 0)
+        self.assertEqual(stats["hrMissingUnassigned"], 1)
+
     def test_library_can_use_one_matching_qb_release_name(self):
         private = private_record(
             identity="movie:path:fixture",

@@ -138,7 +138,7 @@ def build_plan(
         _add_reason(
             blocks,
             "uncovered_hr_recovery",
-            "仍有缺失的 H&R 任务既无 qB 候选也无法关联媒体，禁止完整删除。",
+            "仍有缺失的 H&R 任务无法精确关联媒体，禁止完整删除。",
         )
 
     resources_by_id = inventory.get("resources") or {}
