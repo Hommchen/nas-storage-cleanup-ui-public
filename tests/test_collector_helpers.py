@@ -152,6 +152,39 @@ class CollectorHelperTests(unittest.TestCase):
         self.assertEqual(assignments, set())
         self.assertEqual(covered_titles, set())
 
+    def test_hr_match_requires_verified_complete_qb_payload(self):
+        torrents = [
+            {
+                "hash": "a" * 40,
+                "progress": 1,
+                "_file_list_verified": True,
+                "_exact_files": [
+                    {"name": "complete.mkv", "size": 14, "progress": 1}
+                ],
+            },
+            {
+                "hash": "b" * 40,
+                "progress": 0,
+                "_file_list_verified": True,
+                "_exact_files": [
+                    {"name": "missing.mkv", "size": 14, "progress": 0}
+                ],
+            },
+            {
+                "hash": "c" * 40,
+                "progress": 1,
+                "_file_list_verified": False,
+                "_exact_files": [
+                    {"name": "unverified.mkv", "size": 14, "progress": 1}
+                ],
+            },
+        ]
+
+        self.assertEqual(
+            helpers["verified_complete_qb_hashes"](torrents),
+            {"a" * 40},
+        )
+
     def test_qb_file_cache_rejects_invalid_or_empty_entries(self):
         valid_hash = "a" * 40
         cache = sanitize_qb_file_cache(

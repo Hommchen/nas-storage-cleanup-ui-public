@@ -508,6 +508,26 @@ def payload_video_sizes(files):
     )
 
 
+def verified_complete_qb_hashes(torrents):
+    result = set()
+    for row in torrents:
+        task_hash = str(row.get("hash") or "").lower()
+        files = row.get("_exact_files") or []
+        if (
+            task_hash
+            and row.get("_file_list_verified")
+            and float(row.get("progress") or 0) >= 0.999999
+            and files
+            and all(
+                isinstance(item, dict)
+                and float(item.get("progress") or 0) >= 0.999999
+                for item in files
+            )
+        ):
+            result.add(task_hash)
+    return result
+
+
 def btschool_hr_records(torrents):
     hash_cache = {
         str(torrent_id): str(task_hash).lower()
@@ -548,17 +568,13 @@ def btschool_hr_records(torrents):
             "Cookie": str(cookie or ""),
             "User-Agent": str(user_agent or "Mozilla/5.0"),
         }
-        qb_hashes = {
-            str(row.get("hash") or "").lower()
-            for row in torrents
-            if row.get("hash")
-        }
+        complete_qb_hashes = verified_complete_qb_hashes(torrents)
 
         def official_record(item):
             torrent_id, title = item
             task_hash = hash_cache.get(torrent_id)
             manifest = []
-            if not task_hash or task_hash not in qb_hashes:
+            if not task_hash or task_hash not in complete_qb_hashes:
                 request = Request(
                     str(base_url).rstrip("/")
                     + "/download.php?id="
@@ -586,15 +602,19 @@ def btschool_hr_records(torrents):
             official_records = list(
                 executor.map(official_record, sorted(records.items()))
             )
-        exact_hashes = {
+        active_hashes = {
             record["hash"]
             for record in official_records
-            if record["hash"] in qb_hashes
+        }
+        matched_hashes = {
+            record["hash"]
+            for record in official_records
+            if record["hash"] in complete_qb_hashes
         }
         missing_records = [
             record
             for record in official_records
-            if record["hash"] not in qb_hashes
+            if record["hash"] not in complete_qb_hashes
         ]
         candidate_hashes, covered_titles = assign_hr_candidates(
             torrents,
@@ -603,7 +623,8 @@ def btschool_hr_records(torrents):
         return {
             "available": True,
             "activeCount": len(official_records),
-            "exactHashes": exact_hashes,
+            "activeHashes": active_hashes,
+            "matchedHashes": matched_hashes,
             "missingCount": len(missing_records),
             "missingUncoveredCount": (
                 len(missing_records) - len(covered_titles)
@@ -627,7 +648,8 @@ def btschool_hr_records(torrents):
             "available": False,
             "error": f"{type(error).__name__}: {str(error)[:240]}",
             "activeCount": 0,
-            "exactHashes": set(),
+            "activeHashes": set(),
+            "matchedHashes": set(),
             "missingCount": 0,
             "missingUncoveredCount": 0,
             "candidateHashes": set(),
@@ -1057,7 +1079,8 @@ if not hr_available:
         "H&R source unavailable: "
         + str(hr_status.get("error") or "unknown error")
     )
-hr_hashes = hr_status["exactHashes"]
+hr_hashes = hr_status["activeHashes"]
+hr_matched_hashes = hr_status["matchedHashes"]
 hr_candidate_hashes = hr_status["candidateHashes"]
 group_tasks = defaultdict(list)
 unmatched_groups = {}
@@ -1351,7 +1374,7 @@ print(
                 "unmatchedQbTasks": unmatched_tasks,
                 "hrSourceAvailable": hr_available,
                 "hrActiveTitles": hr_status["activeCount"],
-                "hrMatchedQbTasks": len(hr_hashes),
+                "hrMatchedQbTasks": len(hr_matched_hashes),
                 "hrMissingQbTasks": hr_status["missingCount"],
                 "hrMissingUncovered": hr_status[
                     "missingUncoveredCount"
