@@ -1,0 +1,21 @@
+[Unit]
+Description=PiNAS storage cleanup LAN gateway
+Wants=network-online.target pinas-storage-readiness.service
+After=network-online.target pinas-storage-readiness.service pinas-storage-cleanup-control.service pinas-storage-cleanup-web.service
+RequiresMountsFor=/mnt/sdc
+
+[Service]
+Type=simple
+User=nas-user
+Group=nas-user
+UMask=0027
+WorkingDirectory=/mnt/sdc/library-tools/storage-cleanup-ui/current
+Environment=PYTHONUNBUFFERED=1
+ExecStartPre=+/usr/local/sbin/pinas-storage-readiness
+ExecStart=/usr/bin/python3 scripts/gateway_server.py --host 192.0.2.1 --port 3000
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,22 @@
+[Unit]
+Description=PiNAS storage cleanup web UI
+Wants=network-online.target pinas-storage-readiness.service
+After=network-online.target pinas-storage-readiness.service pinas-storage-cleanup-control.service
+RequiresMountsFor=/mnt/sdc
+
+[Service]
+Type=simple
+User=nas-user
+Group=nas-user
+UMask=0027
+WorkingDirectory=/mnt/sdc/library-tools/storage-cleanup-ui/current
+Environment=NODE_ENV=production
+Environment=HOME=/home/nas-user
+ExecStartPre=+/usr/local/sbin/pinas-storage-readiness
+ExecStart=/usr/bin/npx --no-install vinext start --hostname 127.0.0.1 --port 3001
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

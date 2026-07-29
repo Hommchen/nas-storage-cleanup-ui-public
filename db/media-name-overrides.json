@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "query": "THE GIRL WITH ALL THE GIFTS iso",
+      "kind": "movie",
+      "title": "天赐之女",
+      "englishTitle": "The Girl with All the Gifts",
+      "year": "2016",
+      "identity": "movie:manual:the-girl-with-all-the-gifts",
+      "source": "https://www.1905.com/mdb/film/2235218/info/",
+      "verifiedAt": "2026-07-29T04:30:00+08:00"
+    },
+    {
+      "query": "My Little Old Boy S01 1080p friDay WEB-DL AAC2 0 H 264-MWeb",
+      "kind": "tv",
+      "title": "我家的熊孩子",
+      "englishTitle": "My Little Old Boy",
+      "year": "2016",
+      "identity": "tv:manual:my-little-old-boy",
+      "source": "https://ip.taicca.tw/ipMeetUp/member/company.do?company_id=511",
+      "verifiedAt": "2026-07-29T04:30:00+08:00"
+    },
+    {
+      "query": "I Live Alone S01 1080p friDay WEB-DL AAC2 0 H 264-MWeb",
+      "kind": "tv",
+      "title": "我独自生活",
+      "englishTitle": "I Live Alone",
+      "year": "2013",
+      "identity": "tv:manual:i-live-alone",
+      "source": "https://www.iq.com/play/%E6%88%91%E7%8D%A8%E8%87%AA%E7%94%9F%E6%B4%BB-xq12phhr7g?lang=zh_tw",
+      "verifiedAt": "2026-07-29T04:30:00+08:00"
+    },
+    {
+      "query": "Hangout with Yoo S01 1080p friDay WEB-DL AAC2 0 H 264-MWeb",
+      "kind": "tv",
+      "title": "玩什么好呢",
+      "englishTitle": "Hang Out with Yoo",
+      "year": "2019",
+      "identity": "tv:manual:hang-out-with-yoo",
+      "source": "https://content.mbc.co.kr/program/entertainment/3435121_64513.html",
+      "verifiedAt": "2026-07-29T04:30:00+08:00"
+    }
+  ]
+}
