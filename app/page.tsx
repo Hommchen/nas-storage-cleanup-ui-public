@@ -186,13 +186,21 @@ const filterLabels: { id: Filter; label: string }[] = [
   { id: "names", label: "名称待核" },
 ];
 
-function matchesFilter(item: Resource, filter: Filter) {
+function matchesFilter(
+  item: Resource,
+  filter: Filter,
+  hasUnassignedHr = false,
+) {
   if (filter === "all") return true;
   if (filter === "library") return item.library;
   if (filter === "hr") return item.hr || Boolean(item.hrPending);
   if (filter === "brush") return item.brush;
   if (filter === "review") {
-    return !item.protected && item.qbSummary === "无 qB 任务";
+    return (
+      !hasUnassignedHr &&
+      !item.protected &&
+      item.qbSummary === "无 qB 任务"
+    );
   }
   return item.metadataVerified === false;
 }
@@ -389,21 +397,54 @@ export default function Home() {
   }, [actionMode]);
 
   const resources = snapshot.resources;
+  const hrGap = Math.max(
+    0,
+    snapshot.stats.hrMissingQbTasks ??
+      snapshot.stats.hrActiveTitles - snapshot.stats.hrMatchedQbTasks,
+  );
+  const hrUnassigned =
+    snapshot.stats.hrMissingUnassigned ??
+    snapshot.stats.hrMissingUncovered ??
+    0;
+  const hasUnassignedHr = hrUnassigned > 0;
+  const unresolvedTransactions =
+    snapshot.stats.unresolvedTransactions ?? 0;
+  useEffect(() => {
+    if (!hasUnassignedHr) return;
+    const blockedIds = new Set(
+      resources
+        .filter((item) => item.qbSummary === "无 qB 任务")
+        .map((item) => item.id),
+    );
+    setSelected((current) => {
+      const next = current.filter((id) => !blockedIds.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [hasUnassignedHr, resources]);
   const filters = useMemo(
     () =>
       filterLabels.map((filter) => ({
         ...filter,
-        count: resources.filter((item) => matchesFilter(item, filter.id)).length,
+        count: resources.filter((item) =>
+          matchesFilter(item, filter.id, hasUnassignedHr),
+        ).length,
       })),
-    [resources],
+    [hasUnassignedHr, resources],
   );
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
     return resources
       .filter((item) => {
-        const filterMatch = matchesFilter(item, activeFilter);
+        const filterMatch = matchesFilter(
+          item,
+          activeFilter,
+          hasUnassignedHr,
+        );
         const safeMatch =
-          !safeOnly || (!item.protected && item.qbSummary === "无 qB 任务");
+          !safeOnly ||
+          (!hasUnassignedHr &&
+            !item.protected &&
+            item.qbSummary === "无 qB 任务");
         const text =
           `${item.title} ${item.englishTitle} ${item.edition} ${item.siteSummary}`.toLowerCase();
         return filterMatch && safeMatch && (!query || text.includes(query));
@@ -414,20 +455,16 @@ export default function Home() {
           : left.size - right.size;
         return sizeOrder || left.title.localeCompare(right.title, "zh-CN");
       });
-  }, [activeFilter, resources, safeOnly, search, sortDescending]);
+  }, [
+    activeFilter,
+    hasUnassignedHr,
+    resources,
+    safeOnly,
+    search,
+    sortDescending,
+  ]);
   const selectedItems = resources.filter((item) => selected.includes(item.id));
   const selectedSize = selectedItems.reduce((total, item) => total + item.size, 0);
-  const hrGap = Math.max(
-    0,
-    snapshot.stats.hrMissingQbTasks ??
-      snapshot.stats.hrActiveTitles - snapshot.stats.hrMatchedQbTasks,
-  );
-  const hrUnassigned =
-    snapshot.stats.hrMissingUnassigned ??
-    snapshot.stats.hrMissingUncovered ??
-    0;
-  const unresolvedTransactions =
-    snapshot.stats.unresolvedTransactions ?? 0;
 
   const loadSnapshot = async () => {
     setRefreshing(true);
@@ -528,7 +565,12 @@ export default function Home() {
   };
 
   const toggleSelected = (item: Resource) => {
-    if (item.protected) return;
+    if (
+      item.protected ||
+      (hasUnassignedHr && item.qbSummary === "无 qB 任务")
+    ) {
+      return;
+    }
     setSelected((current) =>
       current.includes(item.id)
         ? current.filter((id) => id !== item.id)
@@ -943,8 +985,8 @@ export default function Home() {
               </strong>
               <small>
                 {hrUnassigned
-                  ? `${hrUnassigned} 个既无 qB 候选也未关联媒体，完整删除已锁定。`
-                  : "缺失任务均已关联到锁定媒体或候选，其他资源可独立审阅。"}
+                  ? `${hrUnassigned} 个未精确关联到媒体，完整删除已锁定。`
+                  : "缺失任务均已关联到锁定媒体，其他资源可独立审阅。"}
               </small>
             </p>
             <b>查看缺口明细</b>
@@ -978,13 +1020,17 @@ export default function Home() {
 
             {visible.map((item) => {
               const isSelected = selected.includes(item.id);
+              const blockedByUnlinkedHr =
+                hasUnassignedHr && item.qbSummary === "无 qB 任务";
+              const selectionBlocked =
+                item.protected || blockedByUnlinkedHr;
               return (
                 <article className="resource-group" key={item.id}>
                   <div className="resource-row">
                     <label
-                      className={`row-check ${item.protected ? "disabled" : ""}`}
+                      className={`row-check ${selectionBlocked ? "disabled" : ""}`}
                       aria-label={
-                        item.protected
+                        selectionBlocked
                           ? `${item.title} ${item.edition} 暂不可清理`
                           : `${isSelected ? "取消选择" : "选择"} ${item.title} ${item.edition}`
                       }
@@ -992,10 +1038,12 @@ export default function Home() {
                       <input
                         type="checkbox"
                         checked={isSelected}
-                        disabled={item.protected}
+                        disabled={selectionBlocked}
                         onChange={() => toggleSelected(item)}
                       />
-                      <span>{item.protected ? "锁" : isSelected ? "✓" : ""}</span>
+                      <span>
+                        {selectionBlocked ? "锁" : isSelected ? "✓" : ""}
+                      </span>
                     </label>
 
                     <div className="resource-title">
@@ -1046,10 +1094,18 @@ export default function Home() {
                     </div>
 
                     <div
-                      className={`impact-cell ${item.protected ? "danger" : ""}`}
+                      className={`impact-cell ${selectionBlocked ? "danger" : ""}`}
                     >
-                      <strong>{item.impactTitle}</strong>
-                      <span>{item.impactDetail}</span>
+                      <strong>
+                        {blockedByUnlinkedHr
+                          ? "H&R 关联待核，暂不可删除"
+                          : item.impactTitle}
+                      </strong>
+                      <span>
+                        {blockedByUnlinkedHr
+                          ? "站点仍有未关联媒体的 H&R 记录；恢复并精确重检前不要手动删除"
+                          : item.impactDetail}
+                      </span>
                     </div>
                   </div>
                 </article>
@@ -1159,15 +1215,13 @@ export default function Home() {
                   </p>
                   <b
                     className={
-                      item.coveredByCandidate || item.linkedResourceTitle
-                        ? "covered"
-                        : ""
+                      item.linkedResourceTitle ? "covered" : ""
                     }
                   >
-                    {item.coveredByCandidate
-                      ? "已找到本地候选"
-                      : item.linkedResourceTitle
-                        ? "媒体已锁定 · qB 待恢复"
+                    {item.linkedResourceTitle
+                      ? "媒体已锁定 · qB 待恢复"
+                      : item.coveredByCandidate
+                        ? "发现候选 · 未验证恢复"
                         : "未定位恢复来源"}
                   </b>
                 </article>
