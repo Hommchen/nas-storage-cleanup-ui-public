@@ -55,9 +55,9 @@ class MoviePilotPluginTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["StorageCleanup"]["system_version"], ">=2.14.6")
-        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.3")
+        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.4")
         self.assertTrue(
-            (PLUGIN_ROOT / "dist/v1.0.3/assets/remoteEntry.js").is_file()
+            (PLUGIN_ROOT / "dist/v1.0.4/assets/remoteEntry.js").is_file()
         )
 
     def test_bridge_uses_token_only_in_internal_headers(self):
@@ -131,6 +131,15 @@ class MoviePilotPluginTests(unittest.TestCase):
         self.assertIn("max-height: calc(100dvh - 24px);", page)
         self.assertIn("confirmPhrase: plan.value.confirmPhrase", page)
         self.assertIn("acknowledgeSiteRisk", page)
+
+    def test_moviepilot_page_guards_out_of_order_plan_responses(self):
+        provider = (PLUGIN_ROOT / "src/provider.js").read_text(encoding="utf-8")
+        wrapper = (
+            PLUGIN_ROOT / "src/components/Page.vue"
+        ).read_text(encoding="utf-8")
+        self.assertIn("createLatestPlanApi", provider)
+        self.assertIn("createLatestPlanApi", wrapper)
+        self.assertIn('endsWith(\'/plan\')', provider)
 
 
 if __name__ == "__main__":

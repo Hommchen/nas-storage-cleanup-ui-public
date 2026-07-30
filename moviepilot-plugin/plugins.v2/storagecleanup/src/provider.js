@@ -29,6 +29,48 @@ export function unwrapResponse(response) {
   return response?.data ?? response
 }
 
+export function createLatestPlanApi(api) {
+  let generation = 0
+  let latestPlanResult = null
+
+  return {
+    ...api,
+    get(...args) {
+      return api.get(...args)
+    },
+    post(path, body, ...args) {
+      if (!String(path || '').endsWith('/plan')) {
+        return api.post(path, body, ...args)
+      }
+
+      const requestGeneration = ++generation
+      let rawRequest
+      try {
+        rawRequest = Promise.resolve(api.post(path, body, ...args))
+      } catch (error) {
+        rawRequest = Promise.reject(error)
+      }
+
+      const result = (async () => {
+        try {
+          const response = await rawRequest
+          if (requestGeneration !== generation && latestPlanResult) {
+            return await latestPlanResult
+          }
+          return response
+        } catch (error) {
+          if (requestGeneration !== generation && latestPlanResult) {
+            return await latestPlanResult
+          }
+          throw error
+        }
+      })()
+      latestPlanResult = result
+      return result
+    },
+  }
+}
+
 export function matchesFilter(item, filter) {
   if (filter === 'all') return true
   if (filter === 'library') return Boolean(item.library)

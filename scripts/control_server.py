@@ -552,16 +552,22 @@ class ControlState:
                         "acknowledgeSiteRisk"
                     ],
                 )
+            except PlanInputError as exc:
+                raise ApiError(
+                    409,
+                    "plan_rebuild_failed",
+                    "执行前计划无法根据最新资源清单重建，请重新生成。",
+                ) from exc
+            try:
                 validate_confirmation(
                     rebuilt,
                     confirm_phrase=confirm_phrase,
                 )
-            except (PlanInputError, ExecutionError) as exc:
-                code = getattr(exc, "code", "plan_rebuild_failed")
+            except ExecutionError as exc:
                 raise ApiError(
                     409,
-                    code,
-                    str(exc),
+                    exc.code,
+                    exc.message,
                     details={"plan": public_plan(rebuilt)},
                 ) from exc
             if rebuilt["planId"] != plan["planId"]:
