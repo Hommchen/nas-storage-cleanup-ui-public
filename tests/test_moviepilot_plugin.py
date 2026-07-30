@@ -55,9 +55,9 @@ class MoviePilotPluginTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["StorageCleanup"]["system_version"], ">=2.14.6")
-        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.2")
+        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.3")
         self.assertTrue(
-            (PLUGIN_ROOT / "dist/v1.0.2/assets/remoteEntry.js").is_file()
+            (PLUGIN_ROOT / "dist/v1.0.3/assets/remoteEntry.js").is_file()
         )
 
     def test_bridge_uses_token_only_in_internal_headers(self):
@@ -124,6 +124,11 @@ class MoviePilotPluginTests(unittest.TestCase):
         self.assertIn("inset: 0;", page)
         self.assertIn("place-items: center;", page)
         self.assertIn("max-height: 90vh;", page)
+        self.assertIn("@media (max-width: 760px)", page)
+        self.assertIn("grid-template-areas:", page)
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr));", page)
+        self.assertIn("env(safe-area-inset-bottom, 0px)", page)
+        self.assertIn("max-height: calc(100dvh - 24px);", page)
         self.assertIn("confirmPhrase: plan.value.confirmPhrase", page)
         self.assertIn("acknowledgeSiteRisk", page)
 

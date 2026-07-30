@@ -425,12 +425,12 @@ onMounted(loadStatus)
           <span>{{ [item.type, item.year, item.edition].filter(Boolean).join(' · ') }}</span>
         </div>
 
-        <div class="stack-cell library">
+        <div class="stack-cell library" data-label="媒体库">
           <strong>{{ item.librarySummary }}</strong>
           <span>{{ item.libraryDetail }}</span>
         </div>
 
-        <div class="seed-cell">
+        <div class="seed-cell" data-label="做种与保护">
           <template v-if="item.seedTasks?.length">
             <div
               v-for="(task, index) in item.seedTasks"
@@ -448,12 +448,15 @@ onMounted(loadStatus)
           </div>
         </div>
 
-        <div class="stack-cell size">
+        <div class="stack-cell size" data-label="实际占用">
           <strong>{{ item.sizeLabel }}</strong>
           <span>{{ item.reclaimLabel }}</span>
         </div>
 
-        <div :class="['impact', { danger: item.protected }]">
+        <div
+          :class="['impact', { danger: item.protected }]"
+          data-label="完整删除影响"
+        >
           <strong>{{ item.impactTitle }}</strong>
           <span>{{ item.impactDetail }}</span>
         </div>
@@ -472,16 +475,18 @@ onMounted(loadStatus)
           <span>完整删除上限 {{ formatGiB(selectedSize) }}</span>
         </p>
         <button class="clear-button" type="button" @click="selected = []">清空</button>
-        <button
-          v-for="(action, mode) in ACTIONS"
-          :key="mode"
-          :class="['action-level', { delete: mode === 'delete' }]"
-          type="button"
-          @click="openPlan(mode)"
-        >
-          <strong>{{ action.title }}</strong>
-          <span>{{ action.detail }}</span>
-        </button>
+        <div class="action-buttons">
+          <button
+            v-for="(action, mode) in ACTIONS"
+            :key="mode"
+            :class="['action-level', { delete: mode === 'delete' }]"
+            type="button"
+            @click="openPlan(mode)"
+          >
+            <strong>{{ action.title }}</strong>
+            <span>{{ action.detail }}</span>
+          </button>
+        </div>
       </aside>
 
       <div v-if="planOpen" class="modal-backdrop" @click.self="closePlan">
@@ -821,6 +826,7 @@ button { color: inherit; }
 .action-bar > p { display: grid; gap: 1px; min-width: 160px; margin: 0; }
 .action-bar > p span, .action-level span { color: rgba(255, 255, 255, .64); font-size: 11px; }
 .clear-button { border: 0; background: transparent; color: rgba(255, 255, 255, .66); cursor: pointer; }
+.action-buttons { display: contents; }
 .action-level { display: grid; flex: 1; gap: 3px; padding: 10px 14px; border: 1px solid rgba(255, 255, 255, .17); border-radius: 11px; background: rgba(255, 255, 255, .06); color: white; text-align: left; cursor: pointer; }
 .action-level.delete { border-color: rgba(255, 142, 136, .32); background: rgba(196, 75, 71, .28); }
 .modal-backdrop {
@@ -891,5 +897,220 @@ button { color: inherit; }
   .table-head, .resource-row {
     grid-template-columns: 38px minmax(240px, 1.3fr) minmax(150px, .7fr) minmax(310px, 1.35fr) 120px minmax(200px, .9fr);
   }
+}
+@media (max-width: 760px) {
+  .cleanup-app {
+    min-width: 0;
+    overflow-x: clip;
+    padding: 14px 12px 190px;
+  }
+  .page-header {
+    display: grid;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .eyebrow { font-size: 10px; }
+  .page-header h1 { font-size: 27px; }
+  .page-header > div > span {
+    display: block;
+    margin-top: 3px;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .status-card {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  .toolbar {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 8px;
+  }
+  .search {
+    grid-column: 1 / -1;
+    height: 44px;
+    box-sizing: border-box;
+  }
+  .safe-toggle {
+    min-width: 0;
+    font-size: 12px;
+  }
+  .soft-button { padding: 0 10px; font-size: 12px; }
+  .icon-button { width: 40px; }
+  .notice {
+    align-items: flex-start;
+    padding: 11px 12px;
+  }
+  .notice p strong { font-size: 14px; }
+  .notice p span { font-size: 11px; }
+  .notice b { display: none; }
+  .filters {
+    overflow-x: auto;
+    width: calc(100vw - 24px);
+    padding: 0 0 4px;
+    scrollbar-width: none;
+  }
+  .filters::-webkit-scrollbar { display: none; }
+  .filters button {
+    flex: 0 0 auto;
+    padding: 8px 11px;
+    white-space: nowrap;
+  }
+  .resource-card {
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  .table-head { display: none; }
+  .resource-row {
+    grid-template-areas:
+      "check title"
+      ". library"
+      ". seed"
+      ". size"
+      ". impact";
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 12px 10px;
+    min-height: 0;
+    margin-bottom: 10px;
+    padding: 15px 13px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    box-shadow: 0 5px 18px rgba(15, 23, 42, .04);
+  }
+  .resource-row:last-child { border-bottom: 1px solid var(--line); }
+  .row-check {
+    grid-area: check;
+    align-self: start;
+    width: 26px;
+    height: 26px;
+  }
+  .resource-title {
+    grid-area: title;
+    padding-right: 0;
+  }
+  .resource-title strong { font-size: 16px; }
+  .resource-title b { font-size: 12px; }
+  .resource-title span { white-space: normal; }
+  .stack-cell.library { grid-area: library; }
+  .seed-cell { grid-area: seed; }
+  .stack-cell.size { grid-area: size; }
+  .impact { grid-area: impact; }
+  .stack-cell, .seed-cell, .impact {
+    min-width: 0;
+    padding: 10px 0 0;
+    border-top: 1px solid var(--line);
+  }
+  .stack-cell::before, .seed-cell::before, .impact::before {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--muted);
+    content: attr(data-label);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .06em;
+  }
+  .impact {
+    padding-left: 0;
+    border-left: 0;
+  }
+  .impact.danger { border-left: 0; }
+  .seed-task {
+    grid-template-columns: 58px minmax(58px, auto) minmax(0, 1fr);
+    gap: 6px;
+    padding-left: 6px;
+  }
+  .seed-task i { padding: 4px 6px; font-size: 10px; }
+  .seed-task strong { font-size: 12px; }
+  .seed-task span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .action-bar {
+    z-index: 2600;
+    right: 10px;
+    bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+    left: 10px;
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+    gap: 8px 10px;
+    padding: 10px;
+    border-radius: 15px;
+  }
+  .selected-count {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    font-size: 16px;
+  }
+  .action-bar > p {
+    min-width: 0;
+  }
+  .action-bar > p strong {
+    overflow: hidden;
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .action-bar > p span { font-size: 10px; }
+  .clear-button {
+    padding: 0 4px;
+    font-size: 12px;
+  }
+  .action-buttons {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+  }
+  .action-level {
+    display: block;
+    min-width: 0;
+    min-height: 42px;
+    padding: 9px 5px;
+    text-align: center;
+  }
+  .action-level strong {
+    display: block;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .action-level span { display: none; }
+  .modal-backdrop {
+    z-index: 3000;
+    padding:
+      max(12px, env(safe-area-inset-top, 0px))
+      12px
+      max(12px, env(safe-area-inset-bottom, 0px));
+  }
+  .modal, .compact-modal {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    box-sizing: border-box;
+    padding: 16px;
+    border-radius: 16px;
+  }
+  .modal h2 { font-size: 21px; }
+  .modal > header { margin-bottom: 12px; }
+  .mode-summary, .plan-state, .safety-note { padding: 11px 12px; }
+  .plan-resources { max-height: 120px; }
+  .plan-resources > div { gap: 8px; padding: 9px 10px; }
+  .plan-resources p { min-width: 0; }
+  .plan-resources p span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .issues { padding: 10px 12px 10px 28px; font-size: 12px; }
+  .final-confirmation > div { display: grid; grid-template-columns: 1fr 1fr; }
+  .gap-row, .recovery-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .recovery-row p { flex-basis: 100%; }
 }
 </style>
