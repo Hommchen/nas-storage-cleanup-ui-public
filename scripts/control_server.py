@@ -318,6 +318,7 @@ class ControlState:
                 not isinstance(item, dict)
                 or not isinstance(item.get("title"), str)
                 or not isinstance(item.get("coveredByCandidate"), bool)
+                or not isinstance(item.get("qbTaskPresent"), bool)
                 or (
                     item.get("linkedResourceTitle") is not None
                     and not isinstance(item.get("linkedResourceTitle"), str)
@@ -331,6 +332,7 @@ class ControlState:
             public_item = {
                 "title": item["title"],
                 "coveredByCandidate": item["coveredByCandidate"],
+                "qbTaskPresent": item["qbTaskPresent"],
             }
             linked_title = str(item.get("linkedResourceTitle") or "").strip()
             if linked_title:

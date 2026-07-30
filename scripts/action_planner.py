@@ -136,9 +136,9 @@ def build_plan(
         missing_unassigned = inventory_stats.get("hrMissingUncovered") or 0
     if mode == "delete" and int(missing_unassigned) > 0:
         _add_reason(
-            blocks,
-            "uncovered_hr_recovery",
-            "仍有缺失的 H&R 任务无法精确关联媒体，禁止完整删除。",
+            warnings,
+            "unassigned_hr_recovery",
+            "仍有 H&R 缺口无法精确关联媒体；当前计划只按所选资源自身保护状态执行。",
         )
 
     resources_by_id = inventory.get("resources") or {}

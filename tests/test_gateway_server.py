@@ -4,13 +4,20 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
-from gateway_server import backend_for, client_allowed, upstream_timeout
+from gateway_server import (
+    backend_for,
+    bridge_client_allowed,
+    client_allowed,
+    request_allowed,
+    upstream_timeout,
+)
 
 
 class GatewayServerTests(unittest.TestCase):
@@ -44,6 +51,55 @@ class GatewayServerTests(unittest.TestCase):
     def test_control_upstream_has_time_for_qb_readback(self):
         self.assertEqual(upstream_timeout(True), 900)
         self.assertEqual(upstream_timeout(False), 30)
+
+    def test_docker_bridge_requires_live_token_and_control_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            token_file = Path(temp_dir) / "control-token"
+            token_file.write_text("expected-token\n", encoding="utf-8")
+            settings = {
+                "bridge_network": "172.17.0.0/16",
+                "bridge_token_file": str(token_file),
+            }
+            self.assertFalse(
+                bridge_client_allowed("172.17.0.2", None, **settings)
+            )
+            self.assertFalse(
+                bridge_client_allowed("172.17.0.2", "wrong", **settings)
+            )
+            self.assertTrue(
+                bridge_client_allowed(
+                    "172.17.0.2",
+                    "expected-token",
+                    **settings,
+                )
+            )
+            self.assertTrue(
+                request_allowed(
+                    "172.17.0.2",
+                    is_control=True,
+                    bridge_token="expected-token",
+                    **settings,
+                )
+            )
+            self.assertFalse(
+                request_allowed(
+                    "172.17.0.2",
+                    is_control=False,
+                    bridge_token="expected-token",
+                    **settings,
+                )
+            )
+
+    def test_lan_access_does_not_require_bridge_token(self):
+        self.assertTrue(
+            request_allowed(
+                "192.168.3.42",
+                is_control=False,
+                bridge_token=None,
+                bridge_network="172.17.0.0/16",
+                bridge_token_file="/missing",
+            )
+        )
 
 
 if __name__ == "__main__":

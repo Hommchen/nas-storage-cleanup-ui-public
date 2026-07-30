@@ -425,6 +425,7 @@ class ControlServerTests(unittest.TestCase):
                 "id": "private-site-id",
                 "title": "Sugar S02E06 1080p",
                 "coveredByCandidate": False,
+                "qbTaskPresent": True,
                 "linkedResourceTitle": "谜探休格",
             }
         ]
@@ -452,6 +453,7 @@ class ControlServerTests(unittest.TestCase):
             payload["gaps"][0]["linkedResourceTitle"],
             "谜探休格",
         )
+        self.assertTrue(payload["gaps"][0]["qbTaskPresent"])
         self.assertNotIn("private-site-id", serialized)
         self.assertNotIn(TASK_HASH, serialized)
         self.assertNotIn("/mnt/", serialized)

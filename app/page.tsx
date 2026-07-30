@@ -144,6 +144,7 @@ type RecoveryAction = "rollback" | "finalize";
 type ProtectionGap = {
   title: string;
   coveredByCandidate: boolean;
+  qbTaskPresent: boolean;
   linkedResourceTitle?: string;
 };
 
@@ -186,21 +187,13 @@ const filterLabels: { id: Filter; label: string }[] = [
   { id: "names", label: "名称待核" },
 ];
 
-function matchesFilter(
-  item: Resource,
-  filter: Filter,
-  hasUnassignedHr = false,
-) {
+function matchesFilter(item: Resource, filter: Filter) {
   if (filter === "all") return true;
   if (filter === "library") return item.library;
   if (filter === "hr") return item.hr || Boolean(item.hrPending);
   if (filter === "brush") return item.brush;
   if (filter === "review") {
-    return (
-      !hasUnassignedHr &&
-      !item.protected &&
-      item.qbSummary === "无 qB 任务"
-    );
+    return !item.protected && item.qbSummary === "无 qB 任务";
   }
   return item.metadataVerified === false;
 }
@@ -406,45 +399,25 @@ export default function Home() {
     snapshot.stats.hrMissingUnassigned ??
     snapshot.stats.hrMissingUncovered ??
     0;
-  const hasUnassignedHr = hrUnassigned > 0;
   const unresolvedTransactions =
     snapshot.stats.unresolvedTransactions ?? 0;
-  useEffect(() => {
-    if (!hasUnassignedHr) return;
-    const blockedIds = new Set(
-      resources
-        .filter((item) => item.qbSummary === "无 qB 任务")
-        .map((item) => item.id),
-    );
-    setSelected((current) => {
-      const next = current.filter((id) => !blockedIds.has(id));
-      return next.length === current.length ? current : next;
-    });
-  }, [hasUnassignedHr, resources]);
   const filters = useMemo(
     () =>
       filterLabels.map((filter) => ({
         ...filter,
-        count: resources.filter((item) =>
-          matchesFilter(item, filter.id, hasUnassignedHr),
-        ).length,
+        count: resources.filter((item) => matchesFilter(item, filter.id))
+          .length,
       })),
-    [hasUnassignedHr, resources],
+    [resources],
   );
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
     return resources
       .filter((item) => {
-        const filterMatch = matchesFilter(
-          item,
-          activeFilter,
-          hasUnassignedHr,
-        );
+        const filterMatch = matchesFilter(item, activeFilter);
         const safeMatch =
           !safeOnly ||
-          (!hasUnassignedHr &&
-            !item.protected &&
-            item.qbSummary === "无 qB 任务");
+          (!item.protected && item.qbSummary === "无 qB 任务");
         const text =
           `${item.title} ${item.englishTitle} ${item.edition} ${item.siteSummary}`.toLowerCase();
         return filterMatch && safeMatch && (!query || text.includes(query));
@@ -457,7 +430,6 @@ export default function Home() {
       });
   }, [
     activeFilter,
-    hasUnassignedHr,
     resources,
     safeOnly,
     search,
@@ -565,12 +537,7 @@ export default function Home() {
   };
 
   const toggleSelected = (item: Resource) => {
-    if (
-      item.protected ||
-      (hasUnassignedHr && item.qbSummary === "无 qB 任务")
-    ) {
-      return;
-    }
+    if (item.protected) return;
     setSelected((current) =>
       current.includes(item.id)
         ? current.filter((id) => id !== item.id)
@@ -981,11 +948,11 @@ export default function Home() {
             <span>H</span>
             <p>
               <strong>
-                {hrGap} 个学校站 H&R 任务当前不在 qB
+                {hrGap} 个学校站 H&R 尚未恢复完成
               </strong>
               <small>
                 {hrUnassigned
-                  ? `${hrUnassigned} 个未精确关联到媒体，完整删除已锁定。`
+                  ? `${hrUnassigned} 个未精确关联到媒体；不影响无关资源独立审阅。`
                   : "缺失任务均已关联到锁定媒体，其他资源可独立审阅。"}
               </small>
             </p>
@@ -1020,10 +987,7 @@ export default function Home() {
 
             {visible.map((item) => {
               const isSelected = selected.includes(item.id);
-              const blockedByUnlinkedHr =
-                hasUnassignedHr && item.qbSummary === "无 qB 任务";
-              const selectionBlocked =
-                item.protected || blockedByUnlinkedHr;
+              const selectionBlocked = item.protected;
               return (
                 <article className="resource-group" key={item.id}>
                   <div className="resource-row">
@@ -1096,16 +1060,8 @@ export default function Home() {
                     <div
                       className={`impact-cell ${selectionBlocked ? "danger" : ""}`}
                     >
-                      <strong>
-                        {blockedByUnlinkedHr
-                          ? "H&R 关联待核，暂不可删除"
-                          : item.impactTitle}
-                      </strong>
-                      <span>
-                        {blockedByUnlinkedHr
-                          ? "站点仍有未关联媒体的 H&R 记录；恢复并精确重检前不要手动删除"
-                          : item.impactDetail}
-                      </span>
+                      <strong>{item.impactTitle}</strong>
+                      <span>{item.impactDetail}</span>
                     </div>
                   </div>
                 </article>
@@ -1190,7 +1146,7 @@ export default function Home() {
             >
               <strong>
                 {hrUnassigned
-                  ? "存在无法定位影响对象的 H&R，完整删除保持锁定"
+                  ? "未定位 H&R 只作风险提示，不全局锁定"
                   : "缺失任务已定向锁定，不再影响无关资源"}
               </strong>
               <span>
@@ -1210,7 +1166,9 @@ export default function Home() {
                     <small>
                       {item.linkedResourceTitle
                         ? `媒体库中已锁定：${item.linkedResourceTitle}`
-                        : "学校站 H&R 任务当前不在 qB"}
+                        : item.qbTaskPresent
+                          ? "官方任务已在 qB，等待下载与 100% 重检"
+                          : "学校站 H&R 任务当前不在 qB"}
                     </small>
                   </p>
                   <b
@@ -1220,8 +1178,10 @@ export default function Home() {
                   >
                     {item.linkedResourceTitle
                       ? "媒体已锁定 · qB 待恢复"
+                      : item.qbTaskPresent
+                        ? "qB 下载未完成 · 保持保护"
                       : item.coveredByCandidate
-                        ? "发现候选 · 未验证恢复"
+                        ? "精确 payload 候选 · 待重检"
                         : "未定位恢复来源"}
                   </b>
                 </article>

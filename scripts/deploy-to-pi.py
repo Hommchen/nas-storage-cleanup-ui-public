@@ -1,5 +1,5 @@
 #!/opt/homebrew/bin/python3.12
-"""Deploy one immutable read-only storage-cleanup release to the Pi."""
+"""Deploy one immutable cleanup release and its MoviePilot native plugin."""
 
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ test ! -e {shlex.quote(str(release / ".deployment-complete"))}
             "--exclude",
             "public/data/",
             "--exclude",
-            "dist/",
+            "/dist/",
             "--exclude",
             ".vinext/",
             "--exclude",
@@ -104,6 +104,12 @@ cd "$release"
 /usr/bin/npm run lint
 /usr/bin/npm run typecheck
 /usr/bin/npm run build
+cd "$release/moviepilot-plugin/plugins.v2/storagecleanup"
+/usr/bin/npm ci --no-audit --no-fund --registry=https://registry.npmjs.org --replace-registry-host=never
+/usr/bin/npm run check
+/usr/bin/npm run build
+test -s dist/v1.0.3/assets/remoteEntry.js
+cd "$release"
 /usr/bin/python3 scripts/collect-readonly-snapshot.py --local-nas
 /usr/bin/python3 - <<'PY'
 import json
@@ -155,13 +161,122 @@ sudo -n systemctl is-enabled pinas-storage-cleanup-control.service pinas-storage
 sudo -n systemctl is-active pinas-storage-cleanup-control.service pinas-storage-cleanup-web.service pinas-storage-cleanup-gateway.service
 """
     )
+
+    ssh_script(
+        f"""
+set -euo pipefail
+sudo -n docker exec -i moviepilot-v2-pilot /opt/venv/bin/python3 - <<'PY'
+import json
+from pathlib import Path
+
+from app.core.config import settings
+from app.db.systemconfig_oper import SystemConfigOper
+from app.helper.plugin import PluginHelper
+from app.schemas.types import SystemConfigKey
+
+plugin_id = "StorageCleanup"
+repo_path = Path("/mnt/sdc/library-tools/storage-cleanup-ui/current/moviepilot-plugin")
+if not (repo_path / "package.v2.json").is_file():
+    raise SystemExit("MoviePilot local plugin manifest is missing")
+
+updated, message = settings.update_setting("PLUGIN_LOCAL_REPO_PATHS", str(repo_path))
+if updated is False:
+    raise SystemExit(f"failed to configure local plugin repository: {{message}}")
+
+helper = PluginHelper()
+repo_url = helper.make_local_repo_url(plugin_id, repo_path, "v2")
+installed, message = helper.install(
+    pid=plugin_id,
+    repo_url=repo_url,
+    force_install=True,
+)
+if not installed:
+    raise SystemExit(f"failed to install local plugin: {{message}}")
+
+config = SystemConfigOper()
+installed_plugins = config.get(SystemConfigKey.UserInstalledPlugins) or []
+if plugin_id not in installed_plugins:
+    installed_plugins.append(plugin_id)
+    config.set(SystemConfigKey.UserInstalledPlugins, installed_plugins)
+
+print(json.dumps({{
+    "ok": True,
+    "plugin": plugin_id,
+    "installed": installed,
+    "localRepo": str(repo_path),
+}}, ensure_ascii=False))
+PY
+sudo -n docker restart moviepilot-v2-pilot >/dev/null
+ready_streak=0
+for attempt in $(seq 1 180); do
+  health="$(sudo -n docker inspect moviepilot-v2-pilot --format '{{{{if .State.Health}}}}{{{{.State.Health.Status}}}}{{{{else}}}}none{{{{end}}}}' 2>/dev/null || true)"
+  if [ "$health" = "healthy" ] &&
+     curl -fsS "http://127.0.0.1:3101/api/v1/system/global?token=moviepilot" >/dev/null; then
+    ready_streak=$((ready_streak + 1))
+    if [ "$ready_streak" -ge 2 ]; then
+      break
+    fi
+  else
+    ready_streak=0
+  fi
+  sleep 2
+done
+test "$ready_streak" -ge 2
+curl -fsS "http://127.0.0.1:3101/api/v1/system/global?token=moviepilot" >/dev/null
+test "$(sudo -n docker inspect moviepilot-v2-pilot --format '{{{{.State.Health.Status}}}}')" = "healthy"
+/usr/bin/python3 - <<'PY'
+import json
+from urllib.request import urlopen
+
+with urlopen(
+    "http://127.0.0.1:3101/api/v1/plugin/remotes?token=moviepilot",
+    timeout=15,
+) as response:
+    remotes = json.load(response)
+remote = next(
+    (item for item in remotes if item.get("id") == "StorageCleanup"),
+    None,
+)
+assert remote
+assert str(remote.get("url") or "").endswith(
+    "/dist/v1.0.3/assets/remoteEntry.js"
+)
+print(json.dumps({{
+    "ok": True,
+    "plugin": "StorageCleanup",
+    "remote": remote["url"],
+}}, ensure_ascii=False))
+PY
+token="$(cat {shlex.quote(str(shared_runtime / "control-token"))})"
+sudo -n docker exec \
+  -e PINAS_BRIDGE_TOKEN="$token" \
+  moviepilot-v2-pilot \
+  sh -lc 'curl -fsS -H "X-PiNAS-Bridge-Token: $PINAS_BRIDGE_TOKEN" -H "X-PiNAS-Session: $PINAS_BRIDGE_TOKEN" http://192.0.2.1:3000/control/health' \
+  >/tmp/pinas-cleanup-moviepilot-bridge-health.json
+/usr/bin/python3 - <<'PY'
+import json
+from pathlib import Path
+payload = json.loads(
+    Path("/tmp/pinas-cleanup-moviepilot-bridge-health.json").read_text()
+)
+assert payload["ok"] is True
+assert payload["executionEnabled"] is True
+print(json.dumps({{
+    "ok": True,
+    "moviePilotBridge": True,
+    "executionEnabled": payload["executionEnabled"],
+}}, ensure_ascii=False))
+PY
+"""
+    )
     print(
         json.dumps(
             {
                 "ok": True,
                 "release": release_id,
                 "piBase": str(PI_BASE),
-                "mode": "read-only",
+                "mode": "execution-enabled",
+                "moviePilotPlugin": "StorageCleanup",
             },
             ensure_ascii=False,
         )

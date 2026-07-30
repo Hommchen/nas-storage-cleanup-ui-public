@@ -42,7 +42,6 @@ from __future__ import annotations
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-import difflib
 import hashlib
 import html
 import json
@@ -374,34 +373,6 @@ def normalized_release(value):
     return re.sub(r"\s+", " ", re.sub(r"[^\w]+", " ", str(value or "").casefold())).strip()
 
 
-def release_matches(left, right):
-    if not left or not right:
-        return False
-    left_key = left.replace(" ", "")
-    right_key = right.replace(" ", "")
-    if left_key == right_key or left_key in right_key or right_key in left_key:
-        return True
-    ratio = difflib.SequenceMatcher(None, left_key, right_key).ratio()
-    if ratio >= 0.80:
-        return True
-    release_tokens = set(re.findall(r"[a-z0-9]+", left.casefold()))
-    title_tokens = []
-    for token in re.findall(r"[a-z0-9]+", right.casefold()):
-        if re.fullmatch(r"(?:19|20)\d{2}|s\d{1,2}(?:e\d{1,3})?|(?:720|1080|2160)p?", token):
-            break
-        title_tokens.append(token)
-    meaningful = {
-        token
-        for token in title_tokens
-        if token not in {"a", "an", "and", "in", "of", "the", "to", "with"}
-    }
-    return (
-        len(title_tokens) >= 2
-        and bool(meaningful)
-        and set(title_tokens).issubset(release_tokens)
-    )
-
-
 def bencode_value_end(data, position):
     token = data[position : position + 1]
     if token == b"i":
@@ -434,6 +405,127 @@ def torrent_infohash(data):
         if key == b"info":
             return hashlib.sha1(data[value_start:position]).hexdigest()
     raise ValueError("torrent has no info dictionary")
+
+
+def bdecode_value(data, position=0, depth=0):
+    if depth > 32 or position >= len(data):
+        raise ValueError("invalid bencoded payload")
+    token = data[position : position + 1]
+    if token == b"i":
+        end = data.index(b"e", position + 1)
+        return int(data[position + 1 : end]), end + 1
+    if token == b"l":
+        values = []
+        position += 1
+        while data[position : position + 1] != b"e":
+            value, position = bdecode_value(data, position, depth + 1)
+            values.append(value)
+        return values, position + 1
+    if token == b"d":
+        values = {}
+        position += 1
+        while data[position : position + 1] != b"e":
+            key, position = bencode_bytes(data, position)
+            value, position = bdecode_value(data, position, depth + 1)
+            values[key] = value
+        return values, position + 1
+    value, position = bencode_bytes(data, position)
+    return value, position
+
+
+def torrent_payload_files(data):
+    payload, position = bdecode_value(data)
+    if position != len(data) or not isinstance(payload, dict):
+        raise ValueError("torrent is not a complete bencoded dictionary")
+    info = payload.get(b"info")
+    if not isinstance(info, dict):
+        raise ValueError("torrent has no info dictionary")
+
+    def text(value):
+        if not isinstance(value, bytes):
+            return ""
+        return value.decode("utf-8", "surrogateescape").replace("\\", "/")
+
+    root_name = text(info.get(b"name.utf-8") or info.get(b"name"))
+    raw_files = info.get(b"files")
+    files = []
+    if isinstance(raw_files, list):
+        for item in raw_files:
+            if not isinstance(item, dict):
+                raise ValueError("torrent file entry is invalid")
+            length = item.get(b"length")
+            path = item.get(b"path.utf-8") or item.get(b"path")
+            if (
+                not isinstance(length, int)
+                or length < 0
+                or not isinstance(path, list)
+            ):
+                raise ValueError("torrent file entry is incomplete")
+            components = [text(component) for component in path]
+            if not components or any(not component for component in components):
+                raise ValueError("torrent file path is invalid")
+            name = "/".join(
+                [component for component in (root_name, *components) if component]
+            )
+            files.append({"name": name, "size": length})
+    else:
+        length = info.get(b"length")
+        if not root_name or not isinstance(length, int) or length < 0:
+            raise ValueError("torrent payload manifest is unsupported")
+        files.append({"name": root_name, "size": length})
+    if not files:
+        raise ValueError("torrent payload manifest is empty")
+    return files
+
+
+def payload_signature(files):
+    signature = []
+    for item in files or []:
+        if not isinstance(item, dict):
+            return ()
+        name = str(item.get("name") or "").replace("\\", "/").rsplit("/", 1)[-1]
+        try:
+            size = int(item.get("size"))
+        except (TypeError, ValueError):
+            return ()
+        if not name or size < 0:
+            return ()
+        signature.append((name.casefold(), size))
+    return tuple(sorted(signature))
+
+
+def payload_video_sizes(files):
+    return tuple(
+        sorted(
+            int(item["size"])
+            for item in files or []
+            if isinstance(item, dict)
+            and Path(str(item.get("name") or "")).suffix.lower()
+            in VIDEO_EXTENSIONS
+            and isinstance(item.get("size"), int)
+            and int(item["size"]) > 0
+        )
+    )
+
+
+def verified_complete_qb_hashes(torrents):
+    result = set()
+    for row in torrents:
+        task_hash = str(row.get("hash") or "").lower()
+        files = row.get("_exact_files") or []
+        if (
+            task_hash
+            and row.get("_file_list_verified")
+            and float(row.get("progress") or 0) >= 0.999999
+            and files
+            and all(
+                isinstance(item, dict)
+                and float(item.get("progress") or 0) >= 0.999999
+                for item in files
+            )
+        ):
+            result.add(task_hash)
+    return result
 
 
 def btschool_hr_records(torrents):
@@ -476,11 +568,13 @@ def btschool_hr_records(torrents):
             "Cookie": str(cookie or ""),
             "User-Agent": str(user_agent or "Mozilla/5.0"),
         }
+        complete_qb_hashes = verified_complete_qb_hashes(torrents)
 
         def official_record(item):
             torrent_id, title = item
             task_hash = hash_cache.get(torrent_id)
-            if not task_hash:
+            manifest = []
+            if not task_hash or task_hash not in complete_qb_hashes:
                 request = Request(
                     str(base_url).rstrip("/")
                     + "/download.php?id="
@@ -489,45 +583,53 @@ def btschool_hr_records(torrents):
                 )
                 with urlopen(request, timeout=30) as response:
                     payload = response.read()
-                task_hash = torrent_infohash(payload)
+                official_hash = torrent_infohash(payload)
+                if task_hash and task_hash != official_hash:
+                    raise ValueError("cached H&R infohash changed")
+                task_hash = official_hash
                 hash_cache[torrent_id] = task_hash
+                manifest = torrent_payload_files(payload)
             return {
                 "id": torrent_id,
                 "title": title,
                 "normalizedTitle": normalized_release(title),
                 "hash": task_hash,
+                "payloadSignature": payload_signature(manifest),
+                "videoSizes": payload_video_sizes(manifest),
             }
 
         with ThreadPoolExecutor(max_workers=6) as executor:
             official_records = list(
                 executor.map(official_record, sorted(records.items()))
             )
+        active_hashes = {
+            record["hash"]
+            for record in official_records
+        }
+        matched_hashes = {
+            record["hash"]
+            for record in official_records
+            if record["hash"] in complete_qb_hashes
+        }
         qb_hashes = {
             str(row.get("hash") or "").lower()
             for row in torrents
-            if row.get("hash")
-        }
-        exact_hashes = {
-            record["hash"]
-            for record in official_records
-            if record["hash"] in qb_hashes
+            if str(row.get("hash") or "")
         }
         missing_records = [
             record
             for record in official_records
-            if record["hash"] not in qb_hashes
+            if record["hash"] not in complete_qb_hashes
         ]
         candidate_hashes, covered_titles = assign_hr_candidates(
             torrents,
-            {
-                record["normalizedTitle"]
-                for record in missing_records
-            },
+            missing_records,
         )
         return {
             "available": True,
             "activeCount": len(official_records),
-            "exactHashes": exact_hashes,
+            "activeHashes": active_hashes,
+            "matchedHashes": matched_hashes,
             "missingCount": len(missing_records),
             "missingUncoveredCount": (
                 len(missing_records) - len(covered_titles)
@@ -541,15 +643,19 @@ def btschool_hr_records(torrents):
                     "coveredByCandidate": (
                         record["normalizedTitle"] in covered_titles
                     ),
+                    "qbTaskPresent": record["hash"] in qb_hashes,
+                    "videoSizes": list(record["videoSizes"]),
                 }
                 for record in missing_records
             ],
         }
-    except Exception:
+    except Exception as error:
         return {
             "available": False,
+            "error": f"{type(error).__name__}: {str(error)[:240]}",
             "activeCount": 0,
-            "exactHashes": set(),
+            "activeHashes": set(),
+            "matchedHashes": set(),
             "missingCount": 0,
             "missingUncoveredCount": 0,
             "candidateHashes": set(),
@@ -558,26 +664,28 @@ def btschool_hr_records(torrents):
         }
 
 
-def assign_hr_candidates(torrents, hr_titles):
+def assign_hr_candidates(torrents, official_records):
+    qb_by_payload = defaultdict(set)
+    for row in torrents:
+        task_hash = str(row.get("hash") or "").lower()
+        if (
+            not task_hash
+            or not row.get("_file_list_verified")
+            or float(row.get("progress") or 0) < 0.999999
+        ):
+            continue
+        signature = payload_signature(row.get("_exact_files") or [])
+        if signature:
+            qb_by_payload[signature].add(task_hash)
+
     assignments = set()
     covered_titles = set()
-    for title in sorted(hr_titles):
-        candidates = []
-        for row in torrents:
-            task_hash = str(row.get("hash") or "").lower()
-            if not task_hash:
-                continue
-            release = normalized_release(row.get("name"))
-            if not release_matches(release, title):
-                continue
-            score = difflib.SequenceMatcher(
-                None,
-                release.replace(" ", ""),
-                title.replace(" ", ""),
-            ).ratio()
-            candidates.append((score, task_hash))
-        if candidates:
-            assignments.add(max(candidates)[1])
+    for record in official_records:
+        title = str(record.get("normalizedTitle") or "")
+        signature = tuple(record.get("payloadSignature") or ())
+        candidates = qb_by_payload.get(signature, set()) if signature else set()
+        if title and candidates:
+            assignments.update(candidates)
             covered_titles.add(title)
     return assignments, covered_titles
 
@@ -972,7 +1080,13 @@ for row, (
         qb_file_lists_cached += 1
 hr_status = btschool_hr_records(torrents)
 hr_available = hr_status["available"]
-hr_hashes = hr_status["exactHashes"]
+if not hr_available:
+    raise RuntimeError(
+        "H&R source unavailable: "
+        + str(hr_status.get("error") or "unknown error")
+    )
+hr_hashes = hr_status["activeHashes"]
+hr_matched_hashes = hr_status["matchedHashes"]
 hr_candidate_hashes = hr_status["candidateHashes"]
 group_tasks = defaultdict(list)
 unmatched_groups = {}
@@ -1266,7 +1380,7 @@ print(
                 "unmatchedQbTasks": unmatched_tasks,
                 "hrSourceAvailable": hr_available,
                 "hrActiveTitles": hr_status["activeCount"],
-                "hrMatchedQbTasks": len(hr_hashes),
+                "hrMatchedQbTasks": len(hr_matched_hashes),
                 "hrMissingQbTasks": hr_status["missingCount"],
                 "hrMissingUncovered": hr_status[
                     "missingUncoveredCount"
@@ -1477,10 +1591,13 @@ def main() -> int:
         collector_command,
         input=remote_collector,
         text=True,
-        check=True,
+        check=False,
         capture_output=True,
         timeout=300,
     )
+    if result.returncode:
+        detail = result.stderr.strip()[-2000:] or "no diagnostic output"
+        raise RuntimeError(f"remote collector failed: {detail}")
     raw_payload = json.loads(result.stdout)
     raw_hr_hash_cache = raw_payload.pop("_hrHashCache", {})
     raw_hr_missing_records = raw_payload.pop("_hrMissingRecords", [])

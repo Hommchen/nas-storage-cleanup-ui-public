@@ -181,6 +181,23 @@ def _hr_scope(value: object) -> str:
     return " · ".join(parts) or "范围待核"
 
 
+def _resource_video_sizes(resource: dict[str, Any]) -> tuple[int, ...]:
+    files = (resource.get("_private") or {}).get("files") or []
+    by_inode: dict[tuple[int, int], int] = {}
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        try:
+            key = (int(item.get("dev") or 0), int(item.get("inode") or 0))
+            size = int(item.get("size") or 0)
+        except (TypeError, ValueError):
+            continue
+        if key[0] <= 0 or key[1] <= 0 or size <= 0:
+            continue
+        by_inode[key] = size
+    return tuple(sorted(by_inode.values()))
+
+
 def annotate_hr_missing_resources(
     resources: list[dict[str, Any]],
     records: list[dict[str, Any]],
@@ -215,36 +232,54 @@ def annotate_hr_missing_resources(
             "id": _clean_text(raw.get("id"), maximum=32),
             "title": _clean_text(raw.get("title"), maximum=2000),
             "coveredByCandidate": bool(raw.get("coveredByCandidate")),
+            "qbTaskPresent": bool(raw.get("qbTaskPresent")),
         }
+        video_sizes = raw.get("videoSizes")
+        if isinstance(video_sizes, list):
+            record["videoSizes"] = sorted(
+                [
+                    int(size)
+                    for size in video_sizes
+                    if isinstance(size, int) and size > 0
+                ]
+            )
         pseudo = pseudos.get(record["id"])
         candidates: list[dict[str, Any]] = []
         if pseudo:
-            entry = entries.get(metadata_cache_key(pseudo))
-            if entry and entry.get("status") == "resolved":
-                identity = str(entry.get("identity") or "")
-                candidates.extend(by_identity.get(identity, []))
-                if not candidates:
-                    for value in (
-                        entry.get("title"),
-                        entry.get("englishTitle"),
-                    ):
-                        candidates.extend(
-                            by_name.get(
-                                (
-                                    str(entry.get("kind") or ""),
-                                    _release_normalized(value),
-                                ),
-                                [],
+            if record.get("videoSizes"):
+                expected_sizes = tuple(record["videoSizes"])
+                candidates.extend(
+                    resource
+                    for resource in resources
+                    if _resource_video_sizes(resource) == expected_sizes
+                )
+            else:
+                entry = entries.get(metadata_cache_key(pseudo))
+                if entry and entry.get("status") == "resolved":
+                    identity = str(entry.get("identity") or "")
+                    candidates.extend(by_identity.get(identity, []))
+                    if not candidates:
+                        for value in (
+                            entry.get("title"),
+                            entry.get("englishTitle"),
+                        ):
+                            candidates.extend(
+                                by_name.get(
+                                    (
+                                        str(entry.get("kind") or ""),
+                                        _release_normalized(value),
+                                    ),
+                                    [],
+                                )
                             )
-                        )
-            if not candidates:
-                release_key = _release_normalized(record["title"])
-                for (kind, name_key), matching in by_name.items():
-                    if kind == _media_kind(pseudo) and (
-                        release_key.startswith(name_key + " ")
-                        or release_key == name_key
-                    ):
-                        candidates.extend(matching)
+                if not candidates:
+                    release_key = _release_normalized(record["title"])
+                    for (kind, name_key), matching in by_name.items():
+                        if kind == _media_kind(pseudo) and (
+                            release_key.startswith(name_key + " ")
+                            or release_key == name_key
+                        ):
+                            candidates.extend(matching)
         unique = {
             str(candidate["id"]): candidate for candidate in candidates
         }
@@ -255,15 +290,26 @@ def annotate_hr_missing_resources(
             record["linkedResourceTitle"] = str(linked.get("title") or "")
             linked["hrPending"] = True
             linked["protected"] = True
-            linked["impactTitle"] = "学校站 H&R 任务缺失"
-            linked["impactDetail"] = (
-                "媒体文件仍在，但官方 H&R 任务不在 qB；"
-                "恢复并精确重检前禁止清理"
-            )
+            if record["qbTaskPresent"]:
+                linked["impactTitle"] = "学校站 H&R 下载未完成"
+                linked["impactDetail"] = (
+                    "官方任务已在 qB，但 payload 尚未完成；"
+                    "100% 重检通过前禁止清理"
+                )
+            else:
+                linked["impactTitle"] = "学校站 H&R 任务缺失"
+                linked["impactDetail"] = (
+                    "媒体文件仍在，但官方 H&R 任务不在 qB；"
+                    "恢复并精确重检前禁止清理"
+                )
             task = {
                 "site": "学校站",
                 "scope": _hr_scope(record["title"]),
-                "status": "H&R 缺失",
+                "status": (
+                    "H&R 未完成"
+                    if record["qbTaskPresent"]
+                    else "H&R 缺失"
+                ),
                 "tone": "protected",
             }
             seed_tasks = list(linked.get("seedTasks") or [])

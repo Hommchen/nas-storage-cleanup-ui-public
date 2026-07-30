@@ -351,7 +351,7 @@ class ActionPlannerTests(unittest.TestCase):
             {item["code"] for item in plan["blocks"]},
         )
 
-    def test_delete_fails_closed_when_hr_source_or_recovery_is_unknown(self):
+    def test_delete_fails_closed_when_hr_source_is_unknown(self):
         unavailable = inventory(resource("res_a"))
         unavailable["stats"]["hrSourceAvailable"] = False
         source_unknown = build_plan(
@@ -361,23 +361,49 @@ class ActionPlannerTests(unittest.TestCase):
             mode="delete",
             now=NOW,
         )
-        uncovered = inventory(resource("res_a"))
-        uncovered["stats"]["hrMissingUnassigned"] = 1
-        recovery_unknown = build_plan(
-            uncovered,
+        self.assertIn(
+            "hr_source_unavailable",
+            {item["code"] for item in source_unknown["blocks"]},
+        )
+
+    def test_unassigned_hr_gap_warns_but_does_not_block_unrelated_delete(self):
+        source = inventory(resource("res_a"))
+        source["stats"]["hrMissingUnassigned"] = 1
+
+        plan = build_plan(
+            source,
             snapshot_id="snap_test",
             resource_ids=["res_a"],
             mode="delete",
             now=NOW,
         )
 
-        self.assertIn(
-            "hr_source_unavailable",
-            {item["code"] for item in source_unknown["blocks"]},
+        self.assertTrue(plan["canExecute"])
+        self.assertNotIn(
+            "uncovered_hr_recovery",
+            {item["code"] for item in plan["blocks"]},
         )
         self.assertIn(
-            "uncovered_hr_recovery",
-            {item["code"] for item in recovery_unknown["blocks"]},
+            "unassigned_hr_recovery",
+            {item["code"] for item in plan["warnings"]},
+        )
+
+    def test_unassigned_hr_gap_does_not_unlock_protected_resource(self):
+        source = inventory(resource("res_a", protected=True))
+        source["stats"]["hrMissingUnassigned"] = 1
+
+        plan = build_plan(
+            source,
+            snapshot_id="snap_test",
+            resource_ids=["res_a"],
+            mode="delete",
+            now=NOW,
+        )
+
+        self.assertFalse(plan["canExecute"])
+        self.assertIn(
+            "protected_resource",
+            {item["code"] for item in plan["blocks"]},
         )
 
     def test_linked_missing_hr_does_not_block_unrelated_delete(self):
