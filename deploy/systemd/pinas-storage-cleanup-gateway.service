@@ -12,7 +12,7 @@ UMask=0027
 WorkingDirectory=/mnt/sdc/library-tools/storage-cleanup-ui/current
 Environment=PYTHONUNBUFFERED=1
 ExecStartPre=+/usr/local/sbin/pinas-storage-readiness
-ExecStart=/usr/bin/python3 scripts/gateway_server.py --host 192.0.2.1 --port 3000
+ExecStart=/usr/bin/python3 scripts/gateway_server.py --host 192.0.2.1 --port 3000 --bridge-network 172.17.0.0/16 --bridge-token-file /mnt/sdc/library-tools/storage-cleanup-ui/shared/runtime/control-token
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=15
