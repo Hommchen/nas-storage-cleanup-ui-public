@@ -611,6 +611,11 @@ def btschool_hr_records(torrents):
             for record in official_records
             if record["hash"] in complete_qb_hashes
         }
+        qb_hashes = {
+            str(row.get("hash") or "").lower()
+            for row in torrents
+            if str(row.get("hash") or "")
+        }
         missing_records = [
             record
             for record in official_records
@@ -638,6 +643,7 @@ def btschool_hr_records(torrents):
                     "coveredByCandidate": (
                         record["normalizedTitle"] in covered_titles
                     ),
+                    "qbTaskPresent": record["hash"] in qb_hashes,
                     "videoSizes": list(record["videoSizes"]),
                 }
                 for record in missing_records

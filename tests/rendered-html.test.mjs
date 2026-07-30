@@ -140,6 +140,21 @@ test("reports exact H&R gaps and locks every recovery candidate", async () => {
   );
 });
 
+test("does not turn unassigned H&R gaps into a global UI lock", async () => {
+  const pageSource = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(
+    pageSource,
+    /hasUnassignedHr\s*&&\s*item\.qbSummary\s*===\s*"无 qB 任务"/,
+  );
+  assert.doesNotMatch(pageSource, /完整删除已锁定/);
+  assert.match(pageSource, /不影响无关资源独立审阅/);
+  assert.match(pageSource, /未定位 H&R 只作风险提示，不全局锁定/);
+});
+
 test("locks every name or identity conflict and merges duplicate series rows", async () => {
   const snapshotUrl = new URL(
     "./fixtures/resource-snapshot.sample.json",

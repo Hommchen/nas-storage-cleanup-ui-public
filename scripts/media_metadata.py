@@ -232,6 +232,7 @@ def annotate_hr_missing_resources(
             "id": _clean_text(raw.get("id"), maximum=32),
             "title": _clean_text(raw.get("title"), maximum=2000),
             "coveredByCandidate": bool(raw.get("coveredByCandidate")),
+            "qbTaskPresent": bool(raw.get("qbTaskPresent")),
         }
         video_sizes = raw.get("videoSizes")
         if isinstance(video_sizes, list):
@@ -289,15 +290,26 @@ def annotate_hr_missing_resources(
             record["linkedResourceTitle"] = str(linked.get("title") or "")
             linked["hrPending"] = True
             linked["protected"] = True
-            linked["impactTitle"] = "学校站 H&R 任务缺失"
-            linked["impactDetail"] = (
-                "媒体文件仍在，但官方 H&R 任务不在 qB；"
-                "恢复并精确重检前禁止清理"
-            )
+            if record["qbTaskPresent"]:
+                linked["impactTitle"] = "学校站 H&R 下载未完成"
+                linked["impactDetail"] = (
+                    "官方任务已在 qB，但 payload 尚未完成；"
+                    "100% 重检通过前禁止清理"
+                )
+            else:
+                linked["impactTitle"] = "学校站 H&R 任务缺失"
+                linked["impactDetail"] = (
+                    "媒体文件仍在，但官方 H&R 任务不在 qB；"
+                    "恢复并精确重检前禁止清理"
+                )
             task = {
                 "site": "学校站",
                 "scope": _hr_scope(record["title"]),
-                "status": "H&R 缺失",
+                "status": (
+                    "H&R 未完成"
+                    if record["qbTaskPresent"]
+                    else "H&R 缺失"
+                ),
                 "tone": "protected",
             }
             seed_tasks = list(linked.get("seedTasks") or [])

@@ -349,6 +349,7 @@ class MediaMetadataTests(unittest.TestCase):
                     "WEB-DL HEVC"
                 ),
                 "coveredByCandidate": False,
+                "qbTaskPresent": True,
             }
         ]
         pseudo = make_hr_metadata_resources(records)[0]
@@ -379,13 +380,13 @@ class MediaMetadataTests(unittest.TestCase):
         self.assertTrue(resources[0]["hrPending"])
         self.assertEqual(
             resources[0]["impactTitle"],
-            "学校站 H&R 任务缺失",
+            "学校站 H&R 下载未完成",
         )
         self.assertIn(
             {
                 "site": "学校站",
                 "scope": "S01 · 2160p",
-                "status": "H&R 缺失",
+                "status": "H&R 未完成",
                 "tone": "protected",
             },
             resources[0]["seedTasks"],
@@ -394,11 +395,12 @@ class MediaMetadataTests(unittest.TestCase):
             annotated[0]["linkedResourceTitle"],
             "择天记",
         )
+        self.assertTrue(annotated[0]["qbTaskPresent"])
         self.assertEqual(stats["hrMissingLinkedRecords"], 1)
         self.assertEqual(stats["hrMissingLinkedResources"], 1)
         self.assertEqual(stats["hrMissingUnassigned"], 0)
 
-    def test_unlinked_hr_candidate_does_not_clear_global_delete_guard(self):
+    def test_unlinked_hr_candidate_remains_unassigned_for_gap_display(self):
         records = [
             {
                 "id": "307598",
