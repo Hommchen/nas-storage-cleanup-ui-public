@@ -40,6 +40,246 @@
       "identity": "tv:manual:hang-out-with-yoo",
       "source": "https://content.mbc.co.kr/program/entertainment/3435121_64513.html",
       "verifiedAt": "2026-07-29T04:30:00+08:00"
+    },
+    {
+      "query": "月上寒星之吴堡石城",
+      "kind": "tv",
+      "title": "星城",
+      "englishTitle": "Star City",
+      "year": "2026",
+      "identity": "tv:manual:star-city",
+      "source": "https://tv.apple.com/sg/show/star-city/umc.cmc.2l8p785osmtmiyk64bh6tfde1?l=zh",
+      "verifiedAt": "2026-07-30T14:22:00+08:00"
+    },
+    {
+      "query": "Untitled Hockey Series",
+      "kind": "tv",
+      "title": "21世纪大君夫人",
+      "englishTitle": "Perfect Crown",
+      "year": "2026",
+      "identity": "tv:manual:perfect-crown",
+      "source": "https://content.mbc.co.kr/program/drama/3900427_64286.html",
+      "verifiedAt": "2026-07-30T14:22:00+08:00"
+    },
+    {
+      "query": "Dark (2017)",
+      "kind": "tv",
+      "title": "暗黑",
+      "englishTitle": "Dark",
+      "year": "2017",
+      "identity": "tv:manual:dark-2017",
+      "source": "https://www.netflix.com/title/80100172",
+      "verifiedAt": "2026-07-30T14:22:00+08:00"
+    },
+    {
+      "query": "Normal (2026)",
+      "kind": "movie",
+      "title": "普通人",
+      "englishTitle": "Normal",
+      "year": "2026",
+      "identity": "movie:manual:normal-2026",
+      "source": "https://cine21.com/movie/info/?movie_id=63084",
+      "verifiedAt": "2026-07-30T14:22:00+08:00"
+    },
+    {
+      "query": "Очень страшное кино Scary Movie [2026, США, комедия, ужасы, WEB-DL 2160p, HDR10, HDR10+] Dub + Original (Eng) + Sub (Rus, Eng)",
+      "kind": "movie",
+      "title": "惊声尖笑",
+      "englishTitle": "Scary Movie",
+      "year": "2026",
+      "identity": "movie:manual:scary-movie-2026",
+      "source": "https://www.paramountpictures.com/movies/scary-movie",
+      "verifiedAt": "2026-07-30T14:22:00+08:00"
+    },
+    {
+      "query": "Amazing Saturday S01 1080p friDay WEB-DL AAC2 0 H 264-MWeb",
+      "kind": "tv",
+      "title": "惊人的星期六",
+      "englishTitle": "Amazing Saturday",
+      "year": "2018",
+      "identity": "tv:manual:amazing-saturday",
+      "source": "https://cjenm.com/en/featured-contents/amazing-saturday/",
+      "verifiedAt": "2026-07-30T14:22:00+08:00"
+    },
+    {
+      "query": "Trying S05 2160p ATVP WEB-DL DDP5 1 Atmos DV H 265-MWeb",
+      "kind": "tv",
+      "title": "尝试",
+      "englishTitle": "Trying",
+      "year": "2020",
+      "identity": "tv:manual:trying",
+      "source": "https://www.apple.com/tv-pr/originals/trying/",
+      "verifiedAt": "2026-07-30T14:22:00+08:00"
+    },
+    {
+      "query": "Trying S05 2160p ATVP WEB-DL DDP5 1 Atmos HDR H 265-MWeb",
+      "kind": "tv",
+      "title": "尝试",
+      "englishTitle": "Trying",
+      "year": "2020",
+      "identity": "tv:manual:trying",
+      "source": "https://www.apple.com/tv-pr/originals/trying/",
+      "verifiedAt": "2026-07-30T14:22:00+08:00"
+    },
+    {
+      "query": "Trying S05 2160p ATVP WEB-DL DDP5 1 Atmos H 265-MWeb",
+      "kind": "tv",
+      "title": "尝试",
+      "englishTitle": "Trying",
+      "year": "2020",
+      "identity": "tv:manual:trying",
+      "source": "https://www.apple.com/tv-pr/originals/trying/",
+      "verifiedAt": "2026-07-30T14:22:00+08:00"
+    },
+    {
+      "query": "Trying S05 1080p ATVP WEB-DL DDP5 1 Atmos H 264-MWeb",
+      "kind": "tv",
+      "title": "尝试",
+      "englishTitle": "Trying",
+      "year": "2020",
+      "identity": "tv:manual:trying",
+      "source": "https://www.apple.com/tv-pr/originals/trying/",
+      "verifiedAt": "2026-07-30T14:22:00+08:00"
+    },
+    {
+      "query": "Good Luck to You All (2025)",
+      "kind": "movie",
+      "title": "祝你好运",
+      "englishTitle": "Good Luck to You All",
+      "year": "2025",
+      "identity": "movie:manual:good-luck-to-you-all",
+      "source": "https://www.themoviedb.org/search?query=Good%20Luck%20to%20You%20All",
+      "verifiedAt": "2026-07-30T14:22:00+08:00"
+    },
+    {
+      "query": "My Grandfather Charles Manson (2026)",
+      "kind": "movie",
+      "title": "我的祖父查尔斯·曼森",
+      "englishTitle": "My Grandfather Charles Manson",
+      "year": "2026",
+      "identity": "movie:manual:my-grandfather-charles-manson",
+      "source": "https://www.imdb.com/title/tt43660866/",
+      "verifiedAt": "2026-07-30T14:22:00+08:00"
+    },
+    {
+      "query": "灵视觉醒 (2026)",
+      "kind": "movie",
+      "title": "灵石觉醒",
+      "englishTitle": "Ling Shi Jue Xing",
+      "year": "2026",
+      "identity": "movie:manual:ling-shi-jue-xing",
+      "source": "https://www.themoviedb.org/search?query=Ling%20Shi%20Jue%20Xing",
+      "verifiedAt": "2026-07-30T14:22:00+08:00"
+    },
+    {
+      "query": "DRAGONTV 2026 Fashion China Night 20260726 HDTV 1080i MP1 H 264-TPTV",
+      "kind": "movie",
+      "title": "中国时尚之夜",
+      "englishTitle": "Fashion China Night",
+      "year": "2026",
+      "identity": "movie:manual:fashion-china-night-2026",
+      "source": "https://soha.vn/dieu-dung-truoc-nu-than-doc-nhan-sinh-ra-o-thanh-dia-my-nhan-198260710152752436.htm",
+      "verifiedAt": "2026-07-30T16:14:00+08:00"
+    },
+    {
+      "query": "Trapped 2016 1080p AMZN WEB-DL DDP5 1 H264-PTerWEB",
+      "kind": "movie",
+      "title": "被困",
+      "englishTitle": "Trapped",
+      "year": "2016",
+      "identity": "movie:manual:trapped-2016-motwane",
+      "source": "https://www.imdb.com/title/tt6206564/",
+      "verifiedAt": "2026-07-30T16:14:00+08:00"
+    },
+    {
+      "query": "Trapped.2016.1080p.AMZN.WEB-DL.DDP5.1.H264-PTerWEB.mkv",
+      "kind": "movie",
+      "title": "被困",
+      "englishTitle": "Trapped",
+      "year": "2016",
+      "identity": "movie:manual:trapped-2016-motwane",
+      "source": "https://www.imdb.com/title/tt6206564/",
+      "verifiedAt": "2026-07-30T16:14:00+08:00"
+    },
+    {
+      "query": "寒战 (1994)",
+      "kind": "movie",
+      "title": "寒战1994",
+      "englishTitle": "Cold War 1994",
+      "year": "1994",
+      "identity": "movie:manual:cold-war-1994",
+      "source": "https://www.themoviedb.org/movie/1499071",
+      "verifiedAt": "2026-07-30T16:14:00+08:00"
+    },
+    {
+      "query": "Frontline Detective - Unforgivable Crime (2022)",
+      "kind": "movie",
+      "title": "一线侦探：不可原谅的罪行",
+      "englishTitle": "Frontline Detective - Unforgivable Crime",
+      "year": "2022",
+      "identity": "movie:manual:frontline-detective-unforgivable-crime",
+      "source": "https://www.themoviedb.org/search?query=Frontline%20Detective%20Unforgivable%20Crime",
+      "verifiedAt": "2026-07-30T16:14:00+08:00"
+    },
+    {
+      "query": "Frontline.Detective.-.Unforgivable.Crime.2022.HDTV.1080i.MP1.H.264-TPTV",
+      "kind": "movie",
+      "title": "一线侦探：不可原谅的罪行",
+      "englishTitle": "Frontline Detective - Unforgivable Crime",
+      "year": "2022",
+      "identity": "movie:manual:frontline-detective-unforgivable-crime",
+      "source": "https://www.themoviedb.org/search?query=Frontline%20Detective%20Unforgivable%20Crime",
+      "verifiedAt": "2026-07-30T16:14:00+08:00"
+    },
+    {
+      "query": "Thousand Cave (2012)",
+      "kind": "movie",
+      "title": "千洞岛抗倭记",
+      "englishTitle": "Thousand Cave",
+      "year": "2012",
+      "identity": "movie:manual:thousand-cave-island",
+      "source": "https://m.1905.com/m/film/feature/2223393.shtml",
+      "verifiedAt": "2026-07-30T16:14:00+08:00"
+    },
+    {
+      "query": "Mary Beth Barone Galaxy Brain (2026)",
+      "kind": "movie",
+      "title": "玛丽·贝丝·巴罗恩：《银河脑》",
+      "englishTitle": "Mary Beth Barone: Galaxy Brain",
+      "year": "2026",
+      "identity": "movie:manual:mary-beth-barone-galaxy-brain",
+      "source": "https://www.gamereactor.cn/video/815913/Mary%2BBeth%2BBarone%2BGalaxy%2BBrain%2B-%2BOfficial%2BTrailer%2BNetflix/",
+      "verifiedAt": "2026-07-30T16:14:00+08:00"
+    },
+    {
+      "query": "Mary.Beth.Barone.Galaxy.Brain.2026.1080p.NF.WEB-DL.DDP5.1.H.264-MWeb.mkv",
+      "kind": "movie",
+      "title": "玛丽·贝丝·巴罗恩：《银河脑》",
+      "englishTitle": "Mary Beth Barone: Galaxy Brain",
+      "year": "2026",
+      "identity": "movie:manual:mary-beth-barone-galaxy-brain",
+      "source": "https://www.gamereactor.cn/video/815913/Mary%2BBeth%2BBarone%2BGalaxy%2BBrain%2B-%2BOfficial%2BTrailer%2BNetflix/",
+      "verifiedAt": "2026-07-30T16:32:00+08:00"
+    },
+    {
+      "query": "[TUcaptions][unhappy][05][TV-720P][BIG5] mp4",
+      "kind": "movie",
+      "title": "不幸少女们（Unhappy♪）",
+      "englishTitle": "Anne Happy",
+      "year": "2016",
+      "identity": "movie:manual:anne-happy-2016",
+      "source": "https://bgm.tv/subject/138053",
+      "verifiedAt": "2026-07-30T16:32:00+08:00"
+    },
+    {
+      "query": "Zhang Jian - The Legendary Entrepreneur S01 2160p TX WEB-DL AAC2 0 HDR HFR H 265-MWeb",
+      "kind": "tv",
+      "title": "江海潮生（又名：张謇）",
+      "englishTitle": "Zhang Jian The Legendary Entrepreneur",
+      "year": "2026",
+      "identity": "tv:manual:zhang-jian-legendary-entrepreneur",
+      "source": "https://www.themoviedb.org/tv/329132",
+      "verifiedAt": "2026-07-30T16:14:00+08:00"
     }
   ]
 }
