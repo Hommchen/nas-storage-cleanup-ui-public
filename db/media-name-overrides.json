@@ -272,6 +272,26 @@
       "verifiedAt": "2026-07-30T16:32:00+08:00"
     },
     {
+      "query": "[TUcaptions][unhappy][06][TV-720P][BIG5] mp4",
+      "kind": "movie",
+      "title": "不幸少女们（Unhappy♪）",
+      "englishTitle": "Anne Happy",
+      "year": "2016",
+      "identity": "movie:manual:anne-happy-2016",
+      "source": "https://bgm.tv/subject/138053",
+      "verifiedAt": "2026-07-30T20:50:00+08:00"
+    },
+    {
+      "query": "[TUcaptions][unhappy][07][TV-720P][BIG5] mp4",
+      "kind": "movie",
+      "title": "不幸少女们（Unhappy♪）",
+      "englishTitle": "Anne Happy",
+      "year": "2016",
+      "identity": "movie:manual:anne-happy-2016",
+      "source": "https://bgm.tv/subject/138053",
+      "verifiedAt": "2026-07-30T20:50:00+08:00"
+    },
+    {
       "query": "Zhang Jian - The Legendary Entrepreneur S01 2160p TX WEB-DL AAC2 0 HDR HFR H 265-MWeb",
       "kind": "tv",
       "title": "江海潮生（又名：张謇）",
