@@ -16,7 +16,7 @@ class StorageCleanup(_PluginBase):
     plugin_name = "存储清理"
     plugin_desc = "看清媒体、做种、H&R 与硬链接关系后再清理。"
     plugin_icon = "mdi-broom"
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     plugin_author = "Hommchen"
     author_url = "https://github.com/Hommchen/pinas-storage-cleanup-ui"
     plugin_config_prefix = "storagecleanup_"
@@ -36,7 +36,7 @@ class StorageCleanup(_PluginBase):
 
     @staticmethod
     def get_render_mode() -> Tuple[str, str]:
-        return "vue", "dist/v1.0.1/assets"
+        return "vue", "dist/v1.0.2/assets"
 
     @staticmethod
     def get_form() -> Tuple[List[dict], Dict[str, Any]]:

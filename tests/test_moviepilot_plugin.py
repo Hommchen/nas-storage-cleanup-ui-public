@@ -55,9 +55,9 @@ class MoviePilotPluginTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["StorageCleanup"]["system_version"], ">=2.14.6")
-        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.1")
+        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.2")
         self.assertTrue(
-            (PLUGIN_ROOT / "dist/v1.0.1/assets/remoteEntry.js").is_file()
+            (PLUGIN_ROOT / "dist/v1.0.2/assets/remoteEntry.js").is_file()
         )
 
     def test_bridge_uses_token_only_in_internal_headers(self):
@@ -108,8 +108,22 @@ class MoviePilotPluginTests(unittest.TestCase):
         page = (
             PLUGIN_ROOT / "src/components/AppPage.vue"
         ).read_text(encoding="utf-8")
-        self.assertIn('<Teleport to="body">', page)
+        self.assertEqual(page.count('<Teleport to="body">'), 1)
+        teleported = page.split('<Teleport to="body">', 1)[1].split(
+            "</Teleport>",
+            1,
+        )[0]
+        for marker in (
+            'class="action-bar"',
+            'v-if="planOpen"',
+            'v-if="gapOpen"',
+            'v-if="recoveryOpen"',
+        ):
+            self.assertIn(marker, teleported)
         self.assertIn("position: fixed;", page)
+        self.assertIn("inset: 0;", page)
+        self.assertIn("place-items: center;", page)
+        self.assertIn("max-height: 90vh;", page)
         self.assertIn("confirmPhrase: plan.value.confirmPhrase", page)
         self.assertIn("acknowledgeSiteRisk", page)
 

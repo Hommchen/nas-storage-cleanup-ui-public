@@ -108,7 +108,7 @@ cd "$release/moviepilot-plugin/plugins.v2/storagecleanup"
 /usr/bin/npm ci --no-audit --no-fund --registry=https://registry.npmjs.org --replace-registry-host=never
 /usr/bin/npm run check
 /usr/bin/npm run build
-test -s dist/v1.0.1/assets/remoteEntry.js
+test -s dist/v1.0.2/assets/remoteEntry.js
 cd "$release"
 /usr/bin/python3 scripts/collect-readonly-snapshot.py --local-nas
 /usr/bin/python3 - <<'PY'
@@ -239,7 +239,7 @@ remote = next(
 )
 assert remote
 assert str(remote.get("url") or "").endswith(
-    "/dist/v1.0.1/assets/remoteEntry.js"
+    "/dist/v1.0.2/assets/remoteEntry.js"
 )
 print(json.dumps({{
     "ok": True,

@@ -483,10 +483,9 @@ onMounted(loadStatus)
           <span>{{ action.detail }}</span>
         </button>
       </aside>
-    </Teleport>
 
-    <div v-if="planOpen" class="modal-backdrop" @click.self="closePlan">
-      <section class="modal plan-modal" role="dialog" aria-modal="true">
+      <div v-if="planOpen" class="modal-backdrop" @click.self="closePlan">
+        <section class="modal plan-modal" role="dialog" aria-modal="true">
         <header>
           <div>
             <span>清理等级 · 真实预演</span>
@@ -587,49 +586,50 @@ onMounted(loadStatus)
         >
           进入最终确认
         </button>
-      </section>
-    </div>
+        </section>
+      </div>
 
-    <div v-if="gapOpen" class="modal-backdrop" @click.self="gapOpen = false">
-      <section class="modal compact-modal">
-        <header><div><span>学校站实时保护</span><h2>H&R 缺口明细</h2></div><button @click="gapOpen = false">×</button></header>
-        <div v-if="gapLoading" class="empty-state">正在核对…</div>
-        <div v-if="gapError" class="plan-state blocked">{{ gapError }}</div>
-        <div v-for="item in gaps" :key="item.title" class="gap-row">
-          <p><strong>{{ item.title }}</strong><span>{{ item.linkedResourceTitle || '尚未精确关联媒体' }}</span></p>
-          <b>{{ item.qbTaskPresent ? 'qB 已存在' : item.coveredByCandidate ? '候选恢复中' : '任务缺失' }}</b>
-        </div>
-      </section>
-    </div>
+      <div v-if="gapOpen" class="modal-backdrop" @click.self="gapOpen = false">
+        <section class="modal compact-modal">
+          <header><div><span>学校站实时保护</span><h2>H&R 缺口明细</h2></div><button @click="gapOpen = false">×</button></header>
+          <div v-if="gapLoading" class="empty-state">正在核对…</div>
+          <div v-if="gapError" class="plan-state blocked">{{ gapError }}</div>
+          <div v-for="item in gaps" :key="item.title" class="gap-row">
+            <p><strong>{{ item.title }}</strong><span>{{ item.linkedResourceTitle || '尚未精确关联媒体' }}</span></p>
+            <b>{{ item.qbTaskPresent ? 'qB 已存在' : item.coveredByCandidate ? '候选恢复中' : '任务缺失' }}</b>
+          </div>
+        </section>
+      </div>
 
-    <div v-if="recoveryOpen" class="modal-backdrop" @click.self="recoveryOpen = false">
-      <section class="modal compact-modal">
-        <header><div><span>失败关闭</span><h2>恢复未完成清理</h2></div><button @click="recoveryOpen = false">×</button></header>
-        <div v-if="recoveryLoading" class="empty-state">正在读取事务…</div>
-        <div v-if="recoveryError" class="plan-state blocked">{{ recoveryError }}</div>
-        <div v-for="item in recoveries" :key="item.planId" class="recovery-row">
-          <p><strong>{{ item.mode }} · {{ item.phase }}</strong><span>{{ item.planId.slice(-10) }}</span></p>
-          <button type="button" @click="chooseRecovery(item, 'rollback')">回滚</button>
-          <button type="button" @click="chooseRecovery(item, 'finalize')">完成原事务</button>
-        </div>
-        <div v-if="recoveryTarget" class="recovery-confirm">
-          <label>输入确认短语 <code>{{ recoveryExpectedPhrase() }}</code></label>
-          <input v-model="recoveryPhrase" autocomplete="off">
-          <button
-            type="button"
-            :disabled="recovering || recoveryPhrase !== recoveryExpectedPhrase()"
-            @click="runRecovery"
-          >
-            {{ recovering ? '处理中…' : '执行恢复' }}
-          </button>
-        </div>
-      </section>
-    </div>
+      <div v-if="recoveryOpen" class="modal-backdrop" @click.self="recoveryOpen = false">
+        <section class="modal compact-modal">
+          <header><div><span>失败关闭</span><h2>恢复未完成清理</h2></div><button @click="recoveryOpen = false">×</button></header>
+          <div v-if="recoveryLoading" class="empty-state">正在读取事务…</div>
+          <div v-if="recoveryError" class="plan-state blocked">{{ recoveryError }}</div>
+          <div v-for="item in recoveries" :key="item.planId" class="recovery-row">
+            <p><strong>{{ item.mode }} · {{ item.phase }}</strong><span>{{ item.planId.slice(-10) }}</span></p>
+            <button type="button" @click="chooseRecovery(item, 'rollback')">回滚</button>
+            <button type="button" @click="chooseRecovery(item, 'finalize')">完成原事务</button>
+          </div>
+          <div v-if="recoveryTarget" class="recovery-confirm">
+            <label>输入确认短语 <code>{{ recoveryExpectedPhrase() }}</code></label>
+            <input v-model="recoveryPhrase" autocomplete="off">
+            <button
+              type="button"
+              :disabled="recovering || recoveryPhrase !== recoveryExpectedPhrase()"
+              @click="runRecovery"
+            >
+              {{ recovering ? '处理中…' : '执行恢复' }}
+            </button>
+          </div>
+        </section>
+      </div>
+    </Teleport>
   </main>
 </template>
 
 <style scoped>
-.cleanup-app {
+.cleanup-app, .action-bar, .modal-backdrop {
   --ink: rgb(var(--v-theme-on-background, 30, 41, 59));
   --muted: rgba(var(--v-theme-on-background, 30, 41, 59), .58);
   --line: rgba(var(--v-border-color, 100, 116, 139), .18);
@@ -639,6 +639,8 @@ onMounted(loadStatus)
   --good: #16836b;
   --warn: #b86b11;
   --danger: #c44b47;
+}
+.cleanup-app {
   color: var(--ink);
   min-width: 980px;
   padding: 18px 24px 110px;
