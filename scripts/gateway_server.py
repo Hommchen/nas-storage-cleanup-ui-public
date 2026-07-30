@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import hmac
 from http import HTTPStatus
 from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import ipaddress
 import json
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -19,6 +21,10 @@ MAX_REQUEST_BYTES = 1024 * 1024
 MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 DEFAULT_UPSTREAM_TIMEOUT_SECONDS = 30
 CONTROL_UPSTREAM_TIMEOUT_SECONDS = 900
+DEFAULT_BRIDGE_NETWORK = "172.17.0.0/16"
+DEFAULT_BRIDGE_TOKEN_FILE = (
+    "/mnt/sdc/library-tools/storage-cleanup-ui/shared/runtime/control-token"
+)
 ALLOWED_CLIENTS = (
     ipaddress.ip_network("192.168.3.0/24"),
     ipaddress.ip_network("127.0.0.0/8"),
@@ -57,6 +63,51 @@ def client_allowed(address: str) -> bool:
     return any(client in network for network in ALLOWED_CLIENTS)
 
 
+def bridge_client_allowed(
+    address: str,
+    provided_token: str | None,
+    *,
+    bridge_network: str,
+    bridge_token_file: str,
+) -> bool:
+    """Authorize only the MoviePilot Docker bridge with the live control token."""
+    try:
+        client = ipaddress.ip_address(address)
+        network = ipaddress.ip_network(bridge_network)
+    except ValueError:
+        return False
+    if client not in network or not provided_token:
+        return False
+    try:
+        expected_token = Path(bridge_token_file).read_text(encoding="utf-8").strip()
+    except OSError:
+        return False
+    return bool(expected_token) and hmac.compare_digest(
+        provided_token,
+        expected_token,
+    )
+
+
+def request_allowed(
+    address: str,
+    *,
+    is_control: bool,
+    bridge_token: str | None,
+    bridge_network: str,
+    bridge_token_file: str,
+) -> bool:
+    if client_allowed(address):
+        return True
+    if not is_control:
+        return False
+    return bridge_client_allowed(
+        address,
+        bridge_token,
+        bridge_network=bridge_network,
+        bridge_token_file=bridge_token_file,
+    )
+
+
 def upstream_timeout(is_control: bool) -> int:
     """Give mutating control requests enough time to finish their read-back."""
     return (
@@ -68,6 +119,9 @@ def upstream_timeout(is_control: bool) -> int:
 
 def handler_class(
     connection_factory: type[HTTPConnection] = HTTPConnection,
+    *,
+    bridge_network: str = DEFAULT_BRIDGE_NETWORK,
+    bridge_token_file: str = DEFAULT_BRIDGE_TOKEN_FILE,
 ):
     class GatewayHandler(BaseHTTPRequestHandler):
         server_version = "PiNASCleanupGateway/1"
@@ -112,7 +166,13 @@ def handler_class(
 
         def _proxy(self) -> None:
             host, port, path, is_control = backend_for(self.path)
-            if not client_allowed(self.client_address[0]):
+            if not request_allowed(
+                self.client_address[0],
+                is_control=is_control,
+                bridge_token=self.headers.get("X-PiNAS-Bridge-Token"),
+                bridge_network=bridge_network,
+                bridge_token_file=bridge_token_file,
+            ):
                 self._send_error(
                     HTTPStatus.FORBIDDEN,
                     "LAN access denied",
@@ -140,7 +200,13 @@ def handler_class(
                 key: value
                 for key, value in self.headers.items()
                 if key.lower() not in HOP_BY_HOP_HEADERS
-                and key.lower() not in {"host", "content-length", "origin"}
+                and key.lower()
+                not in {
+                    "host",
+                    "content-length",
+                    "origin",
+                    "x-pinas-bridge-token",
+                }
             }
             headers["Host"] = f"{host}:{port}"
             headers["X-Forwarded-For"] = self.client_address[0]
@@ -212,6 +278,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--bridge-network", default=DEFAULT_BRIDGE_NETWORK)
+    parser.add_argument(
+        "--bridge-token-file",
+        default=DEFAULT_BRIDGE_TOKEN_FILE,
+    )
     return parser.parse_args()
 
 
@@ -221,7 +292,10 @@ def main() -> int:
         raise SystemExit("gateway must bind to the Pi LAN or loopback address")
     server = ThreadingHTTPServer(
         (args.host, args.port),
-        handler_class(),
+        handler_class(
+            bridge_network=args.bridge_network,
+            bridge_token_file=args.bridge_token_file,
+        ),
     )
     print(f"PiNAS cleanup gateway listening on http://{args.host}:{args.port}")
     try:
