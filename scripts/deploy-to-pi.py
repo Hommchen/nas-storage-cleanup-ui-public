@@ -38,6 +38,15 @@ def pi_address() -> str:
     return PI_HOST.rsplit("@", 1)[-1]
 
 
+def pi_user() -> str:
+    if "@" not in PI_HOST:
+        raise ValueError("--pi-host 必须包含 user@host，才能渲染 systemd 服务用户。")
+    user = PI_HOST.rsplit("@", 1)[0].strip()
+    if not user or any(character.isspace() for character in user):
+        raise ValueError("--pi-host 的 SSH 用户无效。")
+    return user
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -59,6 +68,7 @@ def main() -> int:
     args = parse_args()
     PI_HOST = args.pi_host
     PI_BASE = args.pi_base
+    service_user = pi_user()
     release_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     release = PI_BASE / "releases" / release_id
     shared_runtime = PI_BASE / "shared/runtime"
@@ -146,13 +156,19 @@ public = json.loads(Path("public/data/resource-snapshot.json").read_text())
 assert private["snapshotId"] == public["snapshotId"]
 assert len(private["resources"]) == len(public["resources"])
 PY
+/usr/bin/python3 scripts/render_systemd_units.py \\
+  --source-dir "$release/deploy/systemd" \\
+  --output-dir "$release/.rendered-systemd" \\
+  --base {shlex.quote(str(PI_BASE))} \\
+  --user {shlex.quote(service_user)} \\
+  --address {shlex.quote(pi_address())}
 touch "$release/.deployment-complete"
 next_link="$base/current.{release_id}.next"
 ln -s "releases/{release_id}" "$next_link"
 mv -Tf "$next_link" "$base/current"
-sudo -n install -m 0644 "$release/deploy/systemd/pinas-storage-cleanup-control.service" /etc/systemd/system/
-sudo -n install -m 0644 "$release/deploy/systemd/pinas-storage-cleanup-web.service" /etc/systemd/system/
-sudo -n install -m 0644 "$release/deploy/systemd/pinas-storage-cleanup-gateway.service" /etc/systemd/system/
+sudo -n install -m 0644 "$release/.rendered-systemd/pinas-storage-cleanup-control.service" /etc/systemd/system/
+sudo -n install -m 0644 "$release/.rendered-systemd/pinas-storage-cleanup-web.service" /etc/systemd/system/
+sudo -n install -m 0644 "$release/.rendered-systemd/pinas-storage-cleanup-gateway.service" /etc/systemd/system/
 sudo -n systemctl daemon-reload
 sudo -n systemctl enable pinas-storage-cleanup-control.service pinas-storage-cleanup-web.service pinas-storage-cleanup-gateway.service
 sudo -n systemctl restart pinas-storage-cleanup-control.service pinas-storage-cleanup-web.service pinas-storage-cleanup-gateway.service

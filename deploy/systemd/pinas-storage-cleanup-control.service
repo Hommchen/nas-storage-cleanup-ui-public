@@ -2,17 +2,17 @@
 Description=PiNAS storage cleanup control API
 Wants=network-online.target pinas-storage-readiness.service qbittorrent.service
 After=network-online.target pinas-storage-readiness.service qbittorrent.service docker.service
-RequiresMountsFor=/srv/storage-cleanup-ui
+RequiresMountsFor=@PINAS_BASE@
 
 [Service]
 Type=simple
-User=nas-user
-Group=nas-user
+User=@PINAS_USER@
+Group=@PINAS_USER@
 UMask=0077
-WorkingDirectory=/srv/storage-cleanup-ui/current
+WorkingDirectory=@PINAS_BASE@/current
 Environment=PYTHONUNBUFFERED=1
 ExecStartPre=+/usr/local/sbin/pinas-storage-readiness
-ExecStart=/usr/bin/python3 scripts/control_server.py --local-nas --host 127.0.0.1 --port 8765 --enable-execution --config /srv/storage-cleanup-ui/shared/config.json
+ExecStart=/usr/bin/python3 scripts/control_server.py --local-nas --host 127.0.0.1 --port 8765 --enable-execution --config @PINAS_BASE@/shared/config.json
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=15

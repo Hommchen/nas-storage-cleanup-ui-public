@@ -2,16 +2,16 @@
 Description=PiNAS storage cleanup web UI
 Wants=network-online.target pinas-storage-readiness.service
 After=network-online.target pinas-storage-readiness.service pinas-storage-cleanup-control.service
-RequiresMountsFor=/srv/storage-cleanup-ui
+RequiresMountsFor=@PINAS_BASE@
 
 [Service]
 Type=simple
-User=nas-user
-Group=nas-user
+User=@PINAS_USER@
+Group=@PINAS_USER@
 UMask=0027
-WorkingDirectory=/srv/storage-cleanup-ui/current
+WorkingDirectory=@PINAS_BASE@/current
 Environment=NODE_ENV=production
-Environment=HOME=/home/nas-user
+Environment=HOME=/home/@PINAS_USER@
 ExecStartPre=+/usr/local/sbin/pinas-storage-readiness
 ExecStart=/usr/bin/npx --no-install vinext start --hostname 127.0.0.1 --port 3001
 Restart=on-failure
