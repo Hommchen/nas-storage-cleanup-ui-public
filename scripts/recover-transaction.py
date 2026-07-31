@@ -5,6 +5,12 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
+
+try:
+    from configuration import load_config, normalize_config
+except ModuleNotFoundError:
+    from scripts.configuration import load_config, normalize_config
 
 from execution_engine import (
     ExecutionError,
@@ -24,8 +30,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--confirm-phrase", default="")
     parser.add_argument(
         "--ssh-host",
-        default="nas-user@192.0.2.1",
+        default=None,
     )
+    parser.add_argument("--config", type=Path, default=None)
     parser.add_argument(
         "--local-nas",
         action="store_true",
@@ -36,11 +43,15 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    config = load_config(args.config)
+    if args.ssh_host:
+        config["ssh_host"] = args.ssh_host
+        config = normalize_config(config)
     try:
         runner = (
-            LocalRecoveryRunner()
+            LocalRecoveryRunner(config=config)
             if args.local_nas
-            else SSHRecoveryRunner(host=args.ssh_host)
+            else SSHRecoveryRunner(config=config)
         )
         result = runner(
             plan_id=args.plan_id,

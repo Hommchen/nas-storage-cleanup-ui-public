@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "ssh_host": "nas-user@nas.example.lan",
+  "qb_url": "http://127.0.0.1:8080",
+  "jellyfin_db": "/var/lib/jellyfin/data/jellyfin.db",
+  "moviepilot_db": "/path/to/moviepilot/config/user.db",
+  "qb_backup": "/path/to/qBittorrent/BT_backup",
+  "execution_backup": "/path/to/storage-cleanup/qb-backups",
+  "allowed_roots": [
+    "/path/to/downloads/completed",
+    "/path/to/media/movies",
+    "/path/to/media/tv"
+  ],
+  "quarantine_roots": {
+    "/path/to": "/path/to/.storage-cleanup-quarantine"
+  }
+}

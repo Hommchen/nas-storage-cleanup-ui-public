@@ -15,16 +15,14 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 
-DEFAULT_HOST = "192.0.2.1"
+DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 3000
 MAX_REQUEST_BYTES = 1024 * 1024
 MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 DEFAULT_UPSTREAM_TIMEOUT_SECONDS = 30
 CONTROL_UPSTREAM_TIMEOUT_SECONDS = 900
 DEFAULT_BRIDGE_NETWORK = "172.17.0.0/16"
-DEFAULT_BRIDGE_TOKEN_FILE = (
-    "/mnt/sdc/library-tools/storage-cleanup-ui/shared/runtime/control-token"
-)
+DEFAULT_BRIDGE_TOKEN_FILE = "/run/storage-cleanup/control-token"
 ALLOWED_CLIENTS = (
     ipaddress.ip_network("192.168.3.0/24"),
     ipaddress.ip_network("127.0.0.0/8"),
@@ -288,8 +286,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    if args.host not in {DEFAULT_HOST, "127.0.0.1", "localhost"}:
-        raise SystemExit("gateway must bind to the Pi LAN or loopback address")
+    if args.host in {"0.0.0.0", "::"}:
+        raise SystemExit("gateway must bind to an explicit LAN address or loopback")
     server = ThreadingHTTPServer(
         (args.host, args.port),
         handler_class(

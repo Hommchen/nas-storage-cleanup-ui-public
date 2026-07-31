@@ -29,6 +29,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Build and run the production frontend.",
     )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Host-side JSON configuration file.",
+    )
     return parser.parse_args()
 
 
@@ -64,6 +70,8 @@ def main() -> int:
     ]
     if args.enable_execution:
         control_command.append("--enable-execution")
+    if args.config:
+        control_command.extend(["--config", str(args.config)])
     frontend_command = [
         npm,
         "run",

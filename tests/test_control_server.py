@@ -211,6 +211,24 @@ class ControlServerTests(unittest.TestCase):
         )
         self.assertEqual(state.runtime_mode, "pi-local")
 
+    def test_config_update_is_persisted_and_invalidates_inventory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "public/data").mkdir(parents=True)
+            (root / ".runtime").mkdir(parents=True)
+            write_inventory_pair(root, fixture_inventory())
+            state = ControlState(
+                project_root=root,
+                refresh_runner=lambda: None,
+            )
+            result = state.update_config({"config": state.config})
+            self.assertFalse(result["probe"]["ok"])
+            self.assertFalse(state.inventory_current)
+            self.assertEqual(
+                json.loads((root / ".runtime/config.json").read_text())["version"],
+                1,
+            )
+
     def test_startup_locks_mismatched_or_publicly_sensitive_inventory(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

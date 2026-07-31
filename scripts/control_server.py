@@ -21,6 +21,24 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 from action_planner import PlanInputError, build_plan, public_plan
+try:
+    from configuration import (
+        ConfigurationError,
+        config_fingerprint,
+        load_config,
+        normalize_config,
+        probe_config,
+        write_config,
+    )
+except ModuleNotFoundError:
+    from scripts.configuration import (
+        ConfigurationError,
+        config_fingerprint,
+        load_config,
+        normalize_config,
+        probe_config,
+        write_config,
+    )
 from execution_engine import (
     ExecutionError,
     LocalExecutionRunner,
@@ -62,6 +80,8 @@ class ControlState:
         self,
         *,
         project_root: Path,
+        config_path: Path | None = None,
+        config: dict[str, Any] | None = None,
         refresh_runner: Callable[[], None] | None = None,
         execution_runner: Callable[[dict[str, Any]], dict[str, Any]]
         | None = None,
@@ -69,6 +89,14 @@ class ControlState:
         local_nas: bool = False,
     ):
         self.project_root = project_root.resolve()
+        self.config_path = (
+            config_path.resolve()
+            if config_path is not None
+            else self.project_root / ".runtime/config.json"
+        )
+        self.config = normalize_config(
+            config if config is not None else load_config(self.config_path)
+        )
         self.public_snapshot_path = (
             self.project_root / "public/data/resource-snapshot.json"
         )
@@ -118,6 +146,8 @@ class ControlState:
         command = [
             sys.executable,
             str(self.project_root / "scripts/collect-readonly-snapshot.py"),
+            "--config",
+            str(self.config_path),
         ]
         if self.local_nas:
             command.append("--local-nas")
@@ -141,6 +171,40 @@ class ControlState:
     def inventory(self) -> dict[str, Any]:
         return self._read_json(self.private_inventory_path)
 
+    def config_status(self) -> dict[str, Any]:
+        return {
+            "config": self.config,
+            "configPath": str(self.config_path),
+            "probe": probe_config(self.config),
+        }
+
+    def update_config(self, request: dict[str, Any]) -> dict[str, Any]:
+        raw_config = request.get("config")
+        if not isinstance(raw_config, dict):
+            raise ApiError(400, "invalid_config", "配置必须是 JSON 对象。")
+        try:
+            next_config = normalize_config(raw_config)
+            probe = probe_config(next_config)
+        except ConfigurationError as exc:
+            raise ApiError(400, "invalid_config", str(exc)) from exc
+        if probe["problems"]:
+            raise ApiError(
+                409,
+                "config_probe_failed",
+                "配置存在不安全路径，请修正后再保存。",
+                details={"probe": probe},
+            )
+        write_config(self.config_path, next_config)
+        self.config = next_config
+        self.inventory_current = False
+        self.plan_cache.clear()
+        for runner in (self.execution_runner, self.recovery_runner):
+            if runner is not None and hasattr(runner, "config"):
+                runner.config = next_config
+                if hasattr(runner, "host"):
+                    runner.host = next_config["ssh_host"]
+        return self.config_status()
+
     def _inventory_pair_is_current(self) -> bool:
         try:
             private_lstat = self.private_inventory_path.lstat()
@@ -160,6 +224,11 @@ class ControlState:
         try:
             validate_snapshot_pair(public, private)
         except (TypeError, ValueError):
+            return False
+        # A missing config keeps backwards compatibility with read-only
+        # fixtures. Once a host config exists, every refresh and plan must
+        # also pass its read-only path probe.
+        if self.config_path.is_file() and not probe_config(self.config)["ok"]:
             return False
         return True
 
@@ -229,6 +298,7 @@ class ControlState:
                 resource_ids=resource_ids,
                 mode=mode,
                 acknowledge_site_risk=acknowledge_site_risk,
+                allowed_roots=self.config["allowed_roots"],
             )
         except PlanInputError as exc:
             raise ApiError(400, "invalid_request", str(exc)) from exc
@@ -551,6 +621,7 @@ class ControlState:
                     acknowledge_site_risk=plan[
                         "acknowledgeSiteRisk"
                     ],
+                    allowed_roots=self.config["allowed_roots"],
                 )
             except PlanInputError as exc:
                 raise ApiError(
@@ -722,6 +793,7 @@ def handler_class(state: ControlState):
             try:
                 path = urlparse(self.path).path
                 if path == "/health":
+                    config_probe = probe_config(state.config)
                     self._send_json(
                         200,
                         {
@@ -731,6 +803,8 @@ def handler_class(state: ControlState):
                             "inventoryCurrent": state.inventory_current,
                             "runtimeMode": state.runtime_mode,
                             "hostName": state.host_name,
+                            "configReady": config_probe["ok"],
+                            "configFingerprint": config_fingerprint(state.config),
                         },
                         origin=self._origin(),
                     )
@@ -755,6 +829,14 @@ def handler_class(state: ControlState):
                             "hostName": state.host_name,
                         },
                         origin=origin,
+                    )
+                    return
+                if path == "/v1/config":
+                    self._require_session()
+                    self._send_json(
+                        200,
+                        {"ok": True, **state.config_status()},
+                        origin=self._origin(),
                     )
                     return
                 if path == "/v1/recovery":
@@ -783,6 +865,14 @@ def handler_class(state: ControlState):
             try:
                 self._require_session()
                 path = urlparse(self.path).path
+                if path == "/v1/config":
+                    result = state.update_config(self._read_body())
+                    self._send_json(
+                        HTTPStatus.OK,
+                        {"ok": True, **result},
+                        origin=self._origin(),
+                    )
+                    return
                 if path == "/v1/plan":
                     plan = state.build_public_plan(self._read_body())
                     self._send_json(
@@ -833,13 +923,19 @@ def parse_args() -> argparse.Namespace:
         default=Path(__file__).resolve().parents[1],
     )
     parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Host-side JSON configuration file.",
+    )
+    parser.add_argument(
         "--enable-execution",
         action="store_true",
         help="Enable confirmation-gated NAS mutations.",
     )
     parser.add_argument(
         "--ssh-host",
-        default="nas-user@192.0.2.1",
+        default=None,
     )
     parser.add_argument(
         "--local-nas",
@@ -853,22 +949,28 @@ def main() -> int:
     args = parse_args()
     if args.host not in {"127.0.0.1", "::1", "localhost"}:
         raise SystemExit("control server must bind to loopback")
+    config = load_config(args.config)
+    if args.ssh_host:
+        config["ssh_host"] = args.ssh_host
+        config = normalize_config(config)
     state = ControlState(
         project_root=args.project_root,
+        config_path=args.config,
+        config=config,
         local_nas=args.local_nas,
         execution_runner=(
             (
-                LocalExecutionRunner()
+                LocalExecutionRunner(config=config)
                 if args.local_nas
-                else SSHExecutionRunner(host=args.ssh_host)
+                else SSHExecutionRunner(config=config)
             )
             if args.enable_execution
             else None
         ),
         recovery_runner=(
-            LocalRecoveryRunner()
+            LocalRecoveryRunner(config=config)
             if args.local_nas
-            else SSHRecoveryRunner(host=args.ssh_host)
+            else SSHRecoveryRunner(config=config)
         ),
     )
     server = ThreadingHTTPServer((args.host, args.port), handler_class(state))

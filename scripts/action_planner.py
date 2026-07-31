@@ -38,13 +38,20 @@ class PlanInputError(ValueError):
     """Raised when a plan request itself is malformed."""
 
 
-def path_is_allowed(value: str) -> bool:
+def path_is_allowed(
+    value: str,
+    *,
+    allowed_roots: tuple[PurePosixPath, ...] | list[str] | None = None,
+) -> bool:
     if not value or "\x00" in value:
         return False
     path = PurePosixPath(value)
     if not path.is_absolute() or ".." in path.parts:
         return False
-    return any(path == root or root in path.parents for root in ALLOWED_ROOTS)
+    roots = tuple(
+        PurePosixPath(item) for item in (allowed_roots or ALLOWED_ROOTS)
+    )
+    return any(path == root or root in path.parents for root in roots)
 
 
 def _canonical_digest(value: Any) -> str:
@@ -90,6 +97,7 @@ def build_plan(
     resource_ids: list[str],
     mode: str,
     acknowledge_site_risk: bool = False,
+    allowed_roots: tuple[PurePosixPath, ...] | list[str] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Return a deterministic plan. This function never performs mutations."""
@@ -305,7 +313,10 @@ def build_plan(
                     "没有可复核的实际文件，禁止完整删除。",
                 )
             if any(
-                not path_is_allowed(str(item.get("path") or ""))
+                not path_is_allowed(
+                    str(item.get("path") or ""),
+                    allowed_roots=allowed_roots,
+                )
                 or not item.get("allowed")
                 for item in existing_files
             ):

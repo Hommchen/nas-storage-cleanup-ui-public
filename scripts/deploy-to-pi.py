@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import argparse
 import json
+import os
 from pathlib import Path
 import shlex
 import subprocess
@@ -12,8 +14,8 @@ import sys
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-PI_HOST = "nas-user@192.0.2.1"
-PI_BASE = Path("/mnt/sdc/library-tools/storage-cleanup-ui")
+PI_HOST = "nas-user@nas-host"
+PI_BASE = Path("/srv/storage-cleanup-ui")
 
 
 def run(command: list[str], *, timeout: int = 900) -> None:
@@ -32,11 +34,36 @@ def ssh_script(script: str, *, timeout: int = 900) -> None:
         raise RuntimeError("Pi deployment command failed")
 
 
+def pi_address() -> str:
+    return PI_HOST.rsplit("@", 1)[-1]
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--pi-host",
+        default=os.environ.get("PINAS_PI_HOST", PI_HOST),
+        help="SSH target, or PINAS_PI_HOST.",
+    )
+    parser.add_argument(
+        "--pi-base",
+        type=Path,
+        default=Path(os.environ.get("PINAS_PI_BASE", str(PI_BASE))),
+        help="Persistent deployment directory, or PINAS_PI_BASE.",
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
+    global PI_HOST, PI_BASE
+    args = parse_args()
+    PI_HOST = args.pi_host
+    PI_BASE = args.pi_base
     release_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     release = PI_BASE / "releases" / release_id
     shared_runtime = PI_BASE / "shared/runtime"
     shared_public = PI_BASE / "shared/public-data"
+    shared_config = PI_BASE / "shared/config.json"
 
     ssh_script(
         f"""
@@ -108,9 +135,9 @@ cd "$release/moviepilot-plugin/plugins.v2/storagecleanup"
 /usr/bin/npm ci --no-audit --no-fund --registry=https://registry.npmjs.org --replace-registry-host=never
 /usr/bin/npm run check
 /usr/bin/npm run build
-test -s dist/v1.0.4/assets/remoteEntry.js
+test -s dist/v1.0.5/assets/remoteEntry.js
 cd "$release"
-/usr/bin/python3 scripts/collect-readonly-snapshot.py --local-nas
+/usr/bin/python3 scripts/collect-readonly-snapshot.py --local-nas --config {shlex.quote(str(shared_config))}
 /usr/bin/python3 - <<'PY'
 import json
 from pathlib import Path
@@ -138,8 +165,8 @@ set -euo pipefail
 for attempt in $(seq 1 30); do
   if curl -fsS http://127.0.0.1:8765/health >/tmp/pinas-cleanup-health.json &&
      curl -fsS http://127.0.0.1:3001/ >/dev/null &&
-     curl -fsS http://192.0.2.1:3000/ >/dev/null &&
-     curl -fsS http://192.0.2.1:3000/control/health >/tmp/pinas-cleanup-gateway-health.json; then
+     curl -fsS http://{shlex.quote(pi_address())}:3000/ >/dev/null &&
+     curl -fsS http://{shlex.quote(pi_address())}:3000/control/health >/tmp/pinas-cleanup-gateway-health.json; then
     break
   fi
   sleep 1
@@ -175,7 +202,7 @@ from app.helper.plugin import PluginHelper
 from app.schemas.types import SystemConfigKey
 
 plugin_id = "StorageCleanup"
-repo_path = Path("/mnt/sdc/library-tools/storage-cleanup-ui/current/moviepilot-plugin")
+repo_path = Path({str(PI_BASE / "current/moviepilot-plugin")!r})
 if not (repo_path / "package.v2.json").is_file():
     raise SystemExit("MoviePilot local plugin manifest is missing")
 
@@ -239,7 +266,7 @@ remote = next(
 )
 assert remote
 assert str(remote.get("url") or "").endswith(
-    "/dist/v1.0.4/assets/remoteEntry.js"
+    "/dist/v1.0.5/assets/remoteEntry.js"
 )
 print(json.dumps({{
     "ok": True,
@@ -251,7 +278,7 @@ token="$(cat {shlex.quote(str(shared_runtime / "control-token"))})"
 sudo -n docker exec \
   -e PINAS_BRIDGE_TOKEN="$token" \
   moviepilot-v2-pilot \
-  sh -lc 'curl -fsS -H "X-PiNAS-Bridge-Token: $PINAS_BRIDGE_TOKEN" -H "X-PiNAS-Session: $PINAS_BRIDGE_TOKEN" http://192.0.2.1:3000/control/health' \
+  sh -lc 'curl -fsS -H "X-PiNAS-Bridge-Token: $PINAS_BRIDGE_TOKEN" -H "X-PiNAS-Session: $PINAS_BRIDGE_TOKEN" http://{shlex.quote(pi_address())}:3000/control/health' \
   >/tmp/pinas-cleanup-moviepilot-bridge-health.json
 /usr/bin/python3 - <<'PY'
 import json

@@ -23,7 +23,7 @@ export default defineConfig({
     }),
   ],
   build: {
-    outDir: 'dist/v1.0.4',
+    outDir: 'dist/v1.0.5',
     target: 'esnext',
     minify: false,
     cssCodeSplit: true,

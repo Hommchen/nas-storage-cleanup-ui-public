@@ -181,24 +181,34 @@ class RemoteExecutorSimulationTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def source(self):
+        config = {
+            "qb_url": f"http://127.0.0.1:{self.server.server_address[1]}",
+            "qb_backup": str(self.qb_backup),
+            "moviepilot_db": str(self.moviepilot_db),
+            "execution_backup": str(self.root / "sdc/library-tools/storage-cleanup/qb-backups"),
+            "allowed_roots": [
+                str(self.sdc / "downloads/completed"),
+                str(self.sdd / "downloads/completed"),
+                str(self.sdc / ".media-main/Movies"),
+                str(self.sdd / "media/TV"),
+                str(self.sdc / "media/Movies"),
+                str(self.sdc / "media/TV"),
+                str(self.sdc / ".media-quarantine"),
+                str(self.sdd / ".media-quarantine"),
+            ],
+            "quarantine_roots": {
+                str(self.sdc): str(self.sdc / ".storage-cleanup-quarantine"),
+                str(self.sdd): str(self.sdd / ".storage-cleanup-quarantine"),
+            },
+        }
         source = REMOTE_EXECUTOR.replace(
-            'QB_URL = "http://127.0.0.1:8080"',
-            f'QB_URL = "http://127.0.0.1:{self.server.server_address[1]}"',
-        )
-        source = source.replace(
-            "/home/nas-user",
-            str(self.root / "home/nas-user"),
-        )
-        source = source.replace(
-            'MOVIEPILOT_DB = Path("/mnt/sdc/library-tools/moviepilot/config/user.db")',
-            f'MOVIEPILOT_DB = Path({str(self.moviepilot_db)!r})',
+            'globals().get("__PINAS_CONFIG__", {})',
+            repr(config),
         )
         source = source.replace(
             "def reconcile_removal(hashes, timeout=30):",
             "def reconcile_removal(hashes, timeout=2):",
         )
-        source = source.replace("/mnt/sdc", str(self.sdc))
-        source = source.replace("/mnt/sdd", str(self.sdd))
         return source
 
     def expectations(self):

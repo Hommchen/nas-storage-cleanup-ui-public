@@ -9,10 +9,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-DEFAULT_GATEWAY = "http://192.0.2.1:3000/control"
-DEFAULT_TOKEN_FILE = (
-    "/mnt/sdc/library-tools/storage-cleanup-ui/shared/runtime/control-token"
-)
+DEFAULT_GATEWAY = "http://nas-host:3000/control"
+DEFAULT_TOKEN_FILE = "/run/storage-cleanup/control-token"
 MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 
 

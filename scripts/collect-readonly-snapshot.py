@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 
 try:
+    from configuration import load_config
     from media_metadata import (
         apply_metadata_overrides,
         annotate_hr_missing_resources,
@@ -24,6 +25,7 @@ try:
     )
     from snapshot_integrity import validate_snapshot_pair
 except ModuleNotFoundError:
+    from scripts.configuration import load_config
     from scripts.media_metadata import (
         apply_metadata_overrides,
         annotate_hr_missing_resources,
@@ -52,29 +54,32 @@ import sqlite3
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
-JELLYFIN_DB = "/var/lib/jellyfin/data/jellyfin.db"
-MOVIEPILOT_DB = "/mnt/sdc/library-tools/moviepilot/config/user.db"
-QB_URL = "http://127.0.0.1:8080"
-EXECUTION_BACKUP = Path("/mnt/sdc/library-tools/storage-cleanup/qb-backups")
-QUARANTINE_ROOTS = (
-    Path("/mnt/sdc/.storage-cleanup-quarantine"),
-    Path("/mnt/sdd/.storage-cleanup-quarantine"),
-)
+_CONFIG_DEFAULT = {
+    "jellyfin_db": "/var/lib/jellyfin/data/jellyfin.db",
+    "moviepilot_db": "/path/to/moviepilot/config/user.db",
+    "qb_url": "http://127.0.0.1:8080",
+    "execution_backup": "/path/to/storage-cleanup/qb-backups",
+    "quarantine_roots": {
+        "/path/to": "/path/to/.storage-cleanup-quarantine",
+    },
+    "allowed_roots": [
+        "/path/to/downloads/completed",
+        "/path/to/media/movies",
+        "/path/to/media/tv",
+    ],
+}
+CONFIG = globals().get("__PINAS_CONFIG__", {}) or _CONFIG_DEFAULT
+JELLYFIN_DB = CONFIG["jellyfin_db"]
+MOVIEPILOT_DB = CONFIG["moviepilot_db"]
+QB_URL = CONFIG["qb_url"]
+EXECUTION_BACKUP = Path(CONFIG["execution_backup"])
+QUARANTINE_ROOTS = tuple(Path(value) for value in CONFIG["quarantine_roots"].values())
 MOVIE = "MediaBrowser.Controller.Entities.Movies.Movie"
 SERIES = "MediaBrowser.Controller.Entities.TV.Series"
 EPISODE = "MediaBrowser.Controller.Entities.TV.Episode"
 VIDEO_EXTENSIONS = {".avi", ".m2ts", ".m4v", ".mkv", ".mov", ".mp4", ".ts", ".webm"}
 SEASON_RE = re.compile(r"(?i)(?:^|[ ._\-/])S(?:eason[ ._-]*)?(\d{1,2})(?:[ ._\-/]|$)")
-ALLOWED_ROOTS = (
-    "/mnt/sdc/downloads/completed",
-    "/mnt/sdd/downloads/completed",
-    "/mnt/sdc/.media-main/Movies",
-    "/mnt/sdd/media/TV",
-    "/mnt/sdc/media/Movies",
-    "/mnt/sdc/media/TV",
-    "/mnt/sdc/.media-quarantine",
-    "/mnt/sdd/.media-quarantine",
-)
+ALLOWED_ROOTS = tuple(CONFIG["allowed_roots"])
 HARDLINK_DISCOVERY_ROOTS = ALLOWED_ROOTS
 HR_HASH_CACHE = __HR_HASH_CACHE__
 QB_FILE_CACHE = __QB_FILE_CACHE__
@@ -1407,8 +1412,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--host",
-        default="nas-user@192.0.2.1",
+        default=None,
         help="SSH target; key-based authentication is required.",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Host-side JSON configuration file.",
     )
     parser.add_argument(
         "--local-nas",
@@ -1533,6 +1544,8 @@ def sanitize_qb_file_cache(value: object) -> dict[str, list[dict]]:
 
 def main() -> int:
     args = parse_args()
+    config = load_config(args.config)
+    ssh_host = args.host or config["ssh_host"]
     hr_hash_cache = {}
     try:
         with args.hr_cache.open(encoding="utf-8") as handle:
@@ -1565,6 +1578,10 @@ def main() -> int:
     with args.metadata_overrides.open(encoding="utf-8") as handle:
         metadata_overrides = json.load(handle)
     remote_collector = REMOTE_COLLECTOR.replace(
+        'globals().get("__PINAS_CONFIG__", {})',
+        repr(config),
+        1,
+    ).replace(
         "__HR_HASH_CACHE__",
         repr(hr_hash_cache),
         1,
@@ -1580,7 +1597,7 @@ def main() -> int:
             "ssh",
             "-o",
             "BatchMode=yes",
-            args.host,
+            ssh_host,
             "sudo",
             "-n",
             "/usr/bin/python3",
@@ -1625,7 +1642,7 @@ def main() -> int:
         raw_hr_missing_records
     )
     metadata_cache, metadata_source_available = resolve_media_names(
-        host=None if args.local_nas else args.host,
+        host=None if args.local_nas else ssh_host,
         resources=[
             *hr_metadata_resources,
             *raw_payload["resources"],
@@ -1712,7 +1729,7 @@ def main() -> int:
         "schemaVersion": raw_payload["schemaVersion"],
         "snapshotId": snapshot_id,
         "generatedAt": raw_payload["generatedAt"],
-        "host": args.host,
+        "host": ssh_host,
         "stats": raw_payload["stats"],
         "hrMissingRecords": raw_hr_missing_records,
         "unresolvedTransactionIds": raw_unresolved_transaction_ids,

@@ -9,14 +9,14 @@ from fastapi.responses import JSONResponse
 
 from app.plugins import _PluginBase
 
-from .bridge_client import CleanupBridge
+from .bridge_client import DEFAULT_GATEWAY, DEFAULT_TOKEN_FILE, CleanupBridge
 
 
 class StorageCleanup(_PluginBase):
     plugin_name = "存储清理"
     plugin_desc = "看清媒体、做种、H&R 与硬链接关系后再清理。"
     plugin_icon = "mdi-broom"
-    plugin_version = "1.0.4"
+    plugin_version = "1.0.5"
     plugin_author = "Hommchen"
     author_url = "https://github.com/Hommchen/pinas-storage-cleanup-ui"
     plugin_config_prefix = "storagecleanup_"
@@ -24,7 +24,11 @@ class StorageCleanup(_PluginBase):
     auth_level = 1
 
     def init_plugin(self, config: dict | None = None) -> None:
-        self._bridge = CleanupBridge()
+        settings = config or {}
+        self._bridge = CleanupBridge(
+            gateway=str(settings.get("gateway_url") or DEFAULT_GATEWAY),
+            token_file=str(settings.get("token_file") or DEFAULT_TOKEN_FILE),
+        )
 
     @staticmethod
     def get_state() -> bool:
@@ -36,11 +40,30 @@ class StorageCleanup(_PluginBase):
 
     @staticmethod
     def get_render_mode() -> Tuple[str, str]:
-        return "vue", "dist/v1.0.4/assets"
+        return "vue", "dist/v1.0.5/assets"
 
     @staticmethod
     def get_form() -> Tuple[List[dict], Dict[str, Any]]:
-        return [], {}
+        return [
+            {
+                "key": "gateway_url",
+                "type": "text",
+                "title": "清理台网关地址",
+                "required": True,
+                "placeholder": DEFAULT_GATEWAY,
+            },
+            {
+                "key": "token_file",
+                "type": "text",
+                "title": "控制令牌文件路径",
+                "required": True,
+                "placeholder": DEFAULT_TOKEN_FILE,
+                "help": "仅填写 MoviePilot 容器内可读的文件路径，不填写令牌内容。",
+            },
+        ], {
+            "gateway_url": DEFAULT_GATEWAY,
+            "token_file": DEFAULT_TOKEN_FILE,
+        }
 
     @staticmethod
     def get_page() -> List[dict]:
@@ -62,6 +85,8 @@ class StorageCleanup(_PluginBase):
     def get_api(self) -> List[Dict[str, Any]]:
         return [
             self._route("/status", self.status, ["GET"], "读取清理台状态"),
+            self._route("/config", self.config_status, ["GET"], "读取清理台配置"),
+            self._route("/config", self.update_config, ["POST"], "保存清理台配置"),
             self._route("/snapshot", self.snapshot, ["GET"], "读取资源快照"),
             self._route("/refresh", self.refresh, ["POST"], "刷新资源快照"),
             self._route("/plan", self.plan, ["POST"], "生成清理计划"),
@@ -131,6 +156,12 @@ class StorageCleanup(_PluginBase):
 
     def snapshot(self) -> JSONResponse:
         return self._proxy("/v1/snapshot")
+
+    def config_status(self) -> JSONResponse:
+        return self._proxy("/v1/config")
+
+    def update_config(self, payload: dict = Body(...)) -> JSONResponse:
+        return self._proxy("/v1/config", method="POST", payload=payload)
 
     def refresh(self, payload: dict = Body(default={})) -> JSONResponse:
         return self._proxy("/v1/refresh", method="POST", payload=payload)

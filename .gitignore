@@ -46,4 +46,6 @@ tsconfig.tsbuildinfo
 /outputs/
 /work/
 /.runtime/
+/config/*.json
+!/config/config.example.json
 /public/data/resource-snapshot.json

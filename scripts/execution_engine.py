@@ -12,6 +12,11 @@ import shlex
 import subprocess
 from typing import Any, Callable
 
+try:
+    from configuration import default_config
+except ModuleNotFoundError:
+    from scripts.configuration import default_config
+
 
 REMOTE_EXECUTOR = r'''
 from __future__ import annotations
@@ -32,26 +37,29 @@ import time
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-QB_URL = "http://127.0.0.1:8080"
-QB_BACKUP = Path("/home/nas-user/.local/share/qBittorrent/BT_backup")
-MOVIEPILOT_DB = Path("/mnt/sdc/library-tools/moviepilot/config/user.db")
-EXECUTION_BACKUP = Path("/mnt/sdc/library-tools/storage-cleanup/qb-backups")
-ALLOWED_ROOTS = tuple(
-    Path(value)
-    for value in (
-        "/mnt/sdc/downloads/completed",
-        "/mnt/sdd/downloads/completed",
-        "/mnt/sdc/.media-main/Movies",
-        "/mnt/sdd/media/TV",
-        "/mnt/sdc/media/Movies",
-        "/mnt/sdc/media/TV",
-        "/mnt/sdc/.media-quarantine",
-        "/mnt/sdd/.media-quarantine",
-    )
-)
+_CONFIG_DEFAULT = {
+    "qb_url": "http://127.0.0.1:8080",
+    "qb_backup": "/path/to/qBittorrent/BT_backup",
+    "moviepilot_db": "/path/to/moviepilot/config/user.db",
+    "execution_backup": "/path/to/storage-cleanup/qb-backups",
+    "allowed_roots": [
+        "/path/to/downloads/completed",
+        "/path/to/media/movies",
+        "/path/to/media/tv",
+    ],
+    "quarantine_roots": {
+        "/path/to": "/path/to/.storage-cleanup-quarantine",
+    },
+}
+CONFIG = globals().get("__PINAS_CONFIG__", {}) or _CONFIG_DEFAULT
+QB_URL = CONFIG["qb_url"]
+QB_BACKUP = Path(CONFIG["qb_backup"])
+MOVIEPILOT_DB = Path(CONFIG["moviepilot_db"])
+EXECUTION_BACKUP = Path(CONFIG["execution_backup"])
+ALLOWED_ROOTS = tuple(Path(value) for value in CONFIG["allowed_roots"])
 QUARANTINE_ROOTS = {
-    "/mnt/sdc": Path("/mnt/sdc/.storage-cleanup-quarantine"),
-    "/mnt/sdd": Path("/mnt/sdd/.storage-cleanup-quarantine"),
+    str(volume): Path(value)
+    for volume, value in CONFIG["quarantine_roots"].items()
 }
 HASH_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 PLAN_RE = re.compile(r"^plan_[0-9a-f]{24}$")
@@ -1533,6 +1541,15 @@ class ExecutionError(RuntimeError):
         self.message = message
 
 
+def _encoded_executor(config: dict[str, Any]) -> str:
+    source = REMOTE_EXECUTOR.replace(
+        'globals().get("__PINAS_CONFIG__", {})',
+        repr(config),
+        1,
+    )
+    return base64.b64encode(source.encode("utf-8")).decode("ascii")
+
+
 def validate_confirmation(
     plan: dict[str, Any],
     *,
@@ -1560,11 +1577,13 @@ class SSHExecutionRunner:
     def __init__(
         self,
         *,
-        host: str = "nas-user@192.0.2.1",
+        host: str | None = None,
+        config: dict[str, Any] | None = None,
         command_runner: Callable[..., subprocess.CompletedProcess[str]]
         | None = None,
     ):
-        self.host = host
+        self.config = config or default_config()
+        self.host = host or self.config["ssh_host"]
         self.command_runner = command_runner or subprocess.run
 
     def __call__(self, plan: dict[str, Any]) -> dict[str, Any]:
@@ -1574,9 +1593,7 @@ class SSHExecutionRunner:
             "operations": plan["operations"],
             "fileExpectations": plan["fileExpectations"],
         }
-        encoded_executor = base64.b64encode(
-            REMOTE_EXECUTOR.encode("utf-8")
-        ).decode("ascii")
+        encoded_executor = _encoded_executor(self.config)
         python_code = (
             "import base64;"
             f"exec(base64.b64decode({encoded_executor!r}))"
@@ -1625,11 +1642,13 @@ class SSHRecoveryRunner:
     def __init__(
         self,
         *,
-        host: str = "nas-user@192.0.2.1",
+        host: str | None = None,
+        config: dict[str, Any] | None = None,
         command_runner: Callable[..., subprocess.CompletedProcess[str]]
         | None = None,
     ):
-        self.host = host
+        self.config = config or default_config()
+        self.host = host or self.config["ssh_host"]
         self.command_runner = command_runner or subprocess.run
 
     def __call__(
@@ -1645,9 +1664,7 @@ class SSHRecoveryRunner:
             "action": action,
             "confirmPhrase": confirm_phrase,
         }
-        encoded_executor = base64.b64encode(
-            REMOTE_EXECUTOR.encode("utf-8")
-        ).decode("ascii")
+        encoded_executor = _encoded_executor(self.config)
         python_code = (
             "import base64;"
             f"exec(base64.b64decode({encoded_executor!r}))"
@@ -1698,9 +1715,11 @@ class LocalExecutionRunner:
     def __init__(
         self,
         *,
+        config: dict[str, Any] | None = None,
         command_runner: Callable[..., subprocess.CompletedProcess[str]]
         | None = None,
     ):
+        self.config = config or default_config()
         self.command_runner = command_runner or subprocess.run
 
     def __call__(self, plan: dict[str, Any]) -> dict[str, Any]:
@@ -1712,6 +1731,7 @@ class LocalExecutionRunner:
         }
         return _run_local_executor(
             payload,
+            config=self.config,
             command_runner=self.command_runner,
             unavailable_message="NAS 本机执行器不可用，未确认任何操作完成。",
             failure_code="local_execution_failed",
@@ -1725,9 +1745,11 @@ class LocalRecoveryRunner:
     def __init__(
         self,
         *,
+        config: dict[str, Any] | None = None,
         command_runner: Callable[..., subprocess.CompletedProcess[str]]
         | None = None,
     ):
+        self.config = config or default_config()
         self.command_runner = command_runner or subprocess.run
 
     def __call__(
@@ -1744,6 +1766,7 @@ class LocalRecoveryRunner:
                 "action": action,
                 "confirmPhrase": confirm_phrase,
             },
+            config=self.config,
             command_runner=self.command_runner,
             unavailable_message="NAS 本机恢复器不可用，未确认任何恢复动作完成。",
             failure_code="local_recovery_failed",
@@ -1754,14 +1777,13 @@ class LocalRecoveryRunner:
 def _run_local_executor(
     payload: dict[str, Any],
     *,
+    config: dict[str, Any],
     command_runner: Callable[..., subprocess.CompletedProcess[str]],
     unavailable_message: str,
     failure_code: str,
     failure_message: str,
 ) -> dict[str, Any]:
-    encoded_executor = base64.b64encode(
-        REMOTE_EXECUTOR.encode("utf-8")
-    ).decode("ascii")
+    encoded_executor = _encoded_executor(config)
     python_code = (
         "import base64;"
         f"exec(base64.b64decode({encoded_executor!r}))"
