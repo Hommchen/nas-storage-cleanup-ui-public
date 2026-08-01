@@ -15,7 +15,7 @@ class RenderSystemdUnitsTests(unittest.TestCase):
             render_directory(
                 source_dir,
                 output_dir,
-                base="/mnt/sdc/library-tools/storage-cleanup-ui",
+                base="/srv/storage-cleanup-ui",
                 user="nas-user",
                 address="192.0.2.1",
             )
@@ -23,7 +23,7 @@ class RenderSystemdUnitsTests(unittest.TestCase):
                 rendered = (output_dir / name).read_text(encoding="utf-8")
                 self.assertNotIn("@PINAS_", rendered)
                 self.assertIn("nas-user", rendered)
-                self.assertIn("/mnt/sdc/library-tools/storage-cleanup-ui", rendered)
+                self.assertIn("/srv/storage-cleanup-ui", rendered)
             gateway = (output_dir / "pinas-storage-cleanup-gateway.service").read_text(
                 encoding="utf-8"
             )
