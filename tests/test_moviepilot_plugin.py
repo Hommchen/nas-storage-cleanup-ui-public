@@ -55,9 +55,9 @@ class MoviePilotPluginTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["StorageCleanup"]["system_version"], ">=2.14.6")
-        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.5")
+        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.6")
         self.assertTrue(
-            (PLUGIN_ROOT / "dist/v1.0.5/assets/remoteEntry.js").is_file()
+            (PLUGIN_ROOT / "dist/v1.0.6/assets/remoteEntry.js").is_file()
         )
 
     def test_bridge_uses_token_only_in_internal_headers(self):

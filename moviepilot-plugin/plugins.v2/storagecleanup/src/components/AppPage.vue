@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
   ACTIONS,
   FILTERS,
@@ -9,6 +9,7 @@ import {
   issueKey,
   unwrapResponse,
 } from '../provider.js'
+import { refreshFeedback } from '../refresh-feedback.js'
 
 const props = defineProps({
   api: { type: Object, default: () => ({}) },
@@ -28,6 +29,7 @@ const snapshot = ref(emptySnapshot)
 const health = ref({})
 const loading = ref(true)
 const refreshing = ref(false)
+const refreshElapsed = ref(0)
 const error = ref('')
 const search = ref('')
 const activeFilter = ref('all')
@@ -103,6 +105,27 @@ const allVisibleSelected = computed(() => {
 })
 const currentAction = computed(() => planMode.value ? ACTIONS[planMode.value] : null)
 const planExpired = computed(() => Boolean(plan.value && Date.parse(plan.value.expiresAt) <= Date.now()))
+const refreshMessage = computed(() => {
+  if (!refreshing.value) return ''
+  return refreshFeedback(refreshElapsed.value)
+})
+
+let refreshTimer = null
+
+function stopRefreshTimer() {
+  if (refreshTimer !== null) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+}
+
+function startRefreshTimer() {
+  stopRefreshTimer()
+  refreshElapsed.value = 0
+  refreshTimer = setInterval(() => {
+    refreshElapsed.value += 1
+  }, 1000)
+}
 
 function payloadError(payload, fallback) {
   return payload?.error?.message || fallback
@@ -141,7 +164,9 @@ async function loadStatus() {
 }
 
 async function refreshSnapshot() {
+  if (refreshing.value) return
   refreshing.value = true
+  startRefreshTimer()
   error.value = ''
   try {
     const payload = await post('/refresh', {})
@@ -152,6 +177,7 @@ async function refreshSnapshot() {
     error.value = err?.message || '刷新失败，继续显示上次快照。'
     health.value = { ...health.value, inventoryCurrent: false }
   } finally {
+    stopRefreshTimer()
     refreshing.value = false
   }
 }
@@ -310,6 +336,7 @@ function recoveryExpectedPhrase() {
 }
 
 onMounted(loadStatus)
+onUnmounted(stopRefreshTimer)
 </script>
 
 <template>
@@ -342,9 +369,20 @@ onMounted(loadStatus)
       <button class="soft-button" type="button" @click="descending = !descending">
         实际占用 {{ descending ? '↓' : '↑' }}
       </button>
-      <button class="icon-button" type="button" :disabled="refreshing" @click="refreshSnapshot">
+      <button
+        class="icon-button"
+        type="button"
+        :disabled="refreshing"
+        :aria-label="refreshing ? '正在刷新资源清单' : '刷新资源清单'"
+        :aria-busy="refreshing"
+        :title="refreshMessage || '刷新资源清单'"
+        @click="refreshSnapshot"
+      >
         {{ refreshing ? '…' : '↻' }}
       </button>
+      <p v-if="refreshing" class="refresh-feedback" role="status" aria-live="polite">
+        {{ refreshMessage }}
+      </p>
     </section>
 
     <button
@@ -690,6 +728,7 @@ button { color: inherit; }
 .toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 14px;
 }
@@ -727,6 +766,12 @@ button { color: inherit; }
 }
 .soft-button { padding: 0 14px; }
 .icon-button { width: 42px; font-size: 20px; }
+.refresh-feedback {
+  flex: 0 0 100%;
+  margin: -2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
 .notice {
   display: flex;
   align-items: center;

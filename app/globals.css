@@ -266,6 +266,7 @@ button {
   max-width: 1600px;
   align-items: center;
   gap: 9px;
+  flex-wrap: wrap;
   margin: 0 auto 13px;
 }
 
@@ -369,6 +370,13 @@ button {
 .refresh-control {
   width: 38px;
   font-size: 16px;
+}
+
+.refresh-feedback {
+  flex: 0 0 100%;
+  margin: -2px 0 0;
+  color: #78879a;
+  font-size: 10px;
 }
 
 .recovery-notice {

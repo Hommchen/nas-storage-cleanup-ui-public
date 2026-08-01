@@ -1,11 +1,11 @@
 {
   "name": "moviepilot-storage-cleanup-plugin",
   "private": true,
-  "version": "1.0.5",
+  "version": "1.0.6",
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "check": "node --test tests/provider.test.mjs"
+    "check": "node --test tests/provider.test.mjs tests/refresh-feedback.test.mjs"
   },
   "dependencies": {
     "vue": "^3.5.13"

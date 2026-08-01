@@ -230,6 +230,7 @@ export default function Home() {
   const [inventoryCurrent, setInventoryCurrent] = useState(true);
   const [runtimeMode, setRuntimeMode] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshElapsed, setRefreshElapsed] = useState(0);
   const [snapshotError, setSnapshotError] = useState("");
   const [activeFilter, setActiveFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
@@ -388,6 +389,19 @@ export default function Home() {
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [actionMode]);
+
+  useEffect(() => {
+    if (!refreshing) {
+      setRefreshElapsed(0);
+      return;
+    }
+    const startedAt = Date.now();
+    setRefreshElapsed(0);
+    const timer = window.setInterval(() => {
+      setRefreshElapsed(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [refreshing]);
 
   const resources = snapshot.resources;
   const hrGap = Math.max(
@@ -848,6 +862,13 @@ export default function Home() {
       : controlStatus === "offline" || controlStatus === "connecting"
         ? "offline"
         : "ready";
+  const refreshMessage = !refreshing
+    ? ""
+    : refreshElapsed < 5
+      ? "正在读取 NAS 只读快照…"
+      : refreshElapsed < 30
+        ? `正在核对 qB、Jellyfin 与 H&R（已等待 ${refreshElapsed} 秒）`
+        : `远端 H&R 探测可能需要数分钟（已等待 ${refreshElapsed} 秒），请保持页面打开。`;
   const planExpired = Boolean(
     plan && Date.parse(plan.expiresAt) <= clock,
   );
@@ -909,13 +930,19 @@ export default function Home() {
           <button
             className="refresh-control"
             type="button"
-            aria-label="刷新真实数据"
+            aria-label={refreshing ? "正在刷新资源清单" : "刷新资源清单"}
             aria-busy={refreshing}
+            title={refreshMessage || "刷新资源清单"}
             disabled={refreshing}
             onClick={() => void loadSnapshot()}
           >
             {refreshing ? "…" : "↻"}
           </button>
+          {refreshing && (
+            <p className="refresh-feedback" role="status" aria-live="polite">
+              {refreshMessage}
+            </p>
+          )}
         </section>
 
         {unresolvedTransactions > 0 && (
