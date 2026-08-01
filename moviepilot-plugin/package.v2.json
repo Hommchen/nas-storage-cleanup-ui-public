@@ -4,7 +4,7 @@
     "description": "按电影或整部剧聚合展示媒体、做种与保护关系，并提供三档安全清理。",
     "labels": "存储,媒体库,下载管理",
     "version": "1.0.7",
-    "icon": "mdi-broom",
+    "icon": "https://raw.githubusercontent.com/Hommchen/nas-storage-cleanup-ui-public/main/public/storagecleanup.svg",
     "author": "Hommchen",
     "level": 1,
     "release": false,
