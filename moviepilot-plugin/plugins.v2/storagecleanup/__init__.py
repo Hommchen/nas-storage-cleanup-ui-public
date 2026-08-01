@@ -18,7 +18,7 @@ class StorageCleanup(_PluginBase):
     plugin_icon = "mdi-broom"
     plugin_version = "1.0.7"
     plugin_author = "Hommchen"
-    author_url = "https://github.com/Hommchen/pinas-storage-cleanup-ui"
+    author_url = "https://github.com/Hommchen/nas-storage-cleanup-ui-public"
     plugin_config_prefix = "storagecleanup_"
     plugin_order = 34
     auth_level = 1
