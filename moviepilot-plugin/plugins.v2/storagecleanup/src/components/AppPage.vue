@@ -343,7 +343,7 @@ onUnmounted(stopRefreshTimer)
   <main class="cleanup-app">
     <header v-if="!hideTitle" class="page-header">
       <div>
-        <p class="eyebrow">PiNAS · MoviePilot 原生页面</p>
+        <p class="eyebrow">安全清理台</p>
         <h1>存储清理</h1>
         <span>一部电影一行，一部剧一行；先看清影响，再选择清理等级。</span>
       </div>
