@@ -1044,7 +1044,7 @@ button { color: inherit; }
 .resource-card { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
 .table-head, .resource-row {
   display: grid;
-  grid-template-columns: 42px minmax(270px, 1.55fr) minmax(170px, .85fr) minmax(360px, 1.65fr) minmax(125px, .65fr) minmax(230px, 1fr);
+  grid-template-columns: 42px minmax(0, 1.55fr) minmax(0, .85fr) minmax(0, 1.65fr) minmax(90px, .65fr) minmax(0, 1fr);
   align-items: center;
 }
 .table-head { min-height: 50px; padding: 0 16px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 800; }
@@ -1086,8 +1086,9 @@ button { color: inherit; }
 .seed-task.warning i { color: var(--warn); background: rgba(184, 107, 17, .1); }
 .seed-task.protected { border-color: rgba(196, 75, 71, .45); }
 .seed-task.protected i { color: var(--danger); background: rgba(196, 75, 71, .1); }
-.impact { display: grid; gap: 4px; padding-left: 10px; border-left: 2px solid rgba(22, 131, 107, .35); }
+.impact { display: grid; gap: 4px; min-width: 0; padding-left: 10px; border-left: 2px solid rgba(22, 131, 107, .35); overflow-wrap: anywhere; word-break: break-word; }
 .impact strong { font-size: 13px; }
+.impact span { overflow-wrap: anywhere; word-break: break-word; }
 .impact.danger { border-color: rgba(196, 75, 71, .5); }
 .impact.danger strong { color: var(--danger); }
 .empty-state { display: grid; place-items: center; min-height: 150px; color: var(--muted); }

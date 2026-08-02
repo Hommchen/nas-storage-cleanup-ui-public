@@ -6,6 +6,9 @@
   "moviepilot_db": "/path/to/moviepilot/config/user.db",
   "qb_backup": "/path/to/qBittorrent/BT_backup",
   "execution_backup": "/path/to/storage-cleanup/qb-backups",
+  "publication_ledger_roots": [
+    "/mnt/sdc/library-tools/reports/pt-release-packets"
+  ],
   "allowed_roots": [
     "/path/to/downloads/completed",
     "/path/to/media/movies",

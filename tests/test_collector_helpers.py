@@ -48,6 +48,72 @@ class CollectorHelperTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             helpers["torrent_infohash"](b"d4:name7:Fixturee")
 
+    def test_self_publish_detection_accepts_exact_publication_evidence(self):
+        task_hash = "a" * 40
+        row = {
+            "hash": task_hash,
+            "category": "pt-cyanbug",
+            "tags": "PT, 大青虫",
+            "name": "Fixture.2024.1080p",
+        }
+
+        self.assertTrue(helpers["is_self_published"](row, {task_hash}))
+        self.assertEqual(
+            helpers["task_status"](row, {task_hash}),
+            ("自发布", "warning"),
+        )
+
+    def test_self_publish_detection_accepts_audited_btschool_markers(self):
+        task_hash = "b" * 40
+        candidate = {
+            "hash": "c" * 40,
+            "category": "pt-btschool",
+            "tags": "候选47422, 学校",
+            "name": "Pressure.2026",
+        }
+        dedicated_path = {
+            "hash": task_hash,
+            "category": "pt-btschool",
+            "tags": "学校",
+            "content_path": (
+                "/mnt/sdc/downloads/completed/pt-btschool/"
+                + task_hash
+                + "/Pressure"
+            ),
+            "name": "Pressure.2026",
+        }
+        incoming_crossseed = dict(dedicated_path)
+        incoming_crossseed["content_path"] = (
+            "/mnt/sdc/downloads/incoming/real-steal-btschool-47324/qb/"
+            + task_hash
+        )
+        ordinary = dict(dedicated_path)
+        ordinary["content_path"] = "/mnt/sdc/downloads/completed/Pressure"
+
+        self.assertTrue(helpers["is_self_published"](candidate))
+        self.assertTrue(helpers["is_self_published"](dedicated_path))
+        self.assertFalse(helpers["is_self_published"](incoming_crossseed))
+        self.assertFalse(helpers["is_self_published"](ordinary))
+
+    def test_publication_ledger_json_is_strictly_hash_based(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "publication-ledger.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "entries": [
+                            {"infohash": "D" * 40},
+                            {"infohash": "not-a-hash"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                helpers["publication_ledger_json_hashes"](path),
+                {"d" * 40},
+            )
+
     def test_stable_resource_id_is_not_row_position_based(self):
         first = helpers["stable_resource_id"]("tv:tmdb:1399")
         second = helpers["stable_resource_id"]("tv:tmdb:1399")

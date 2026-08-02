@@ -1369,6 +1369,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ada1893b"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-86ce61f0"]]);
 
 export { createLatestPlanApi as c, AppPage as default };

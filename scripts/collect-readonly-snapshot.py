@@ -67,6 +67,7 @@ _CONFIG_DEFAULT = {
         "/path/to/media/movies",
         "/path/to/media/tv",
     ],
+    "publication_ledger_roots": [],
 }
 CONFIG = globals().get("__PINAS_CONFIG__", {}) or _CONFIG_DEFAULT
 JELLYFIN_DB = CONFIG["jellyfin_db"]
@@ -83,6 +84,16 @@ ALLOWED_ROOTS = tuple(CONFIG["allowed_roots"])
 HARDLINK_DISCOVERY_ROOTS = ALLOWED_ROOTS
 HR_HASH_CACHE = __HR_HASH_CACHE__
 QB_FILE_CACHE = __QB_FILE_CACHE__
+DEFAULT_PUBLICATION_LEDGER_ROOT = Path(
+    "/mnt/sdc/library-tools/reports/pt-release-packets"
+)
+PUBLICATION_LEDGER_ROOTS = tuple(
+    Path(value)
+    for value in (
+        CONFIG.get("publication_ledger_roots")
+        or [str(DEFAULT_PUBLICATION_LEDGER_ROOT)]
+    )
+)
 
 
 def unresolved_transactions():
@@ -362,10 +373,47 @@ def site_label(row):
     return host or str(row.get("category") or "qB")
 
 
-def task_status(row):
+def tag_tokens(value):
+    return {
+        token.strip().casefold()
+        for token in re.split(r"[,;|\s]+", str(value or ""))
+        if token.strip()
+    }
+
+
+def btschool_release_path(value):
+    normalized = str(value or "").replace("\\", "/").casefold()
+    return bool(
+        re.search(
+            r"/downloads/completed/pt-btschool/(?:auto-crossseed/)?"
+            r"[0-9a-f]{40}(?:/|$)",
+            normalized,
+        )
+    )
+
+
+def is_self_published(row, publication_hashes=frozenset()):
     tags = str(row.get("tags") or "")
+    task_hash = str(row.get("hash") or "").casefold()
+    category = str(row.get("category") or "").casefold()
+    name = str(row.get("name") or "")
+    tokens = tag_tokens(tags)
+    if {"pt-own-upload", "自发布"} & tokens:
+        return True
+    if task_hash and task_hash in publication_hashes:
+        return True
+    if category == "pt-btschool" and re.search(r"候选\s*\d+", tags):
+        return True
+    if category == "pt-btschool" and btschool_release_path(row.get("content_path")):
+        return True
+    if re.search(r"(?i)(?:^|[^a-z])pinas(?:$|[^a-z])", name):
+        return True
+    return False
+
+
+def task_status(row, publication_hashes=frozenset()):
     state = str(row.get("state") or "")
-    if "pt-own-upload" in tags or "自发布" in tags:
+    if is_self_published(row, publication_hashes):
         return "自发布", "warning"
     if state in {"downloading", "forcedDL", "stalledDL", "metaDL", "checkingDL"}:
         return "下载中", "protected"
@@ -410,6 +458,63 @@ def torrent_infohash(data):
         if key == b"info":
             return hashlib.sha1(data[value_start:position]).hexdigest()
     raise ValueError("torrent has no info dictionary")
+
+
+def valid_infohash(value):
+    text = str(value or "").strip().casefold()
+    if len(text) != 40 or any(character not in "0123456789abcdef" for character in text):
+        return ""
+    return text
+
+
+def publication_ledger_json_hashes(path):
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return set()
+    values = []
+    if isinstance(payload, dict):
+        values.extend(payload.get("infohashes") or [])
+        values.extend(payload.get("hashes") or [])
+        for entry in payload.get("entries") or []:
+            if isinstance(entry, dict):
+                values.extend((entry.get("infohash"), entry.get("hash")))
+    elif isinstance(payload, list):
+        values.extend(payload)
+    return {
+        task_hash
+        for value in values
+        for task_hash in (valid_infohash(value),)
+        if task_hash
+    }
+
+
+def load_publication_hashes():
+    """Load exact, host-local publication evidence without trusting labels alone."""
+
+    hashes = set()
+    for root in PUBLICATION_LEDGER_ROOTS:
+        if not root.is_dir() or root.is_symlink():
+            continue
+        ledger = root / "publication-ledger.json"
+        if ledger.is_file() and not ledger.is_symlink():
+            hashes.update(publication_ledger_json_hashes(ledger))
+        try:
+            candidates = root.rglob("*.torrent")
+        except OSError:
+            continue
+        for index, path in enumerate(candidates):
+            if index >= 5000 or path.is_symlink() or not path.is_file():
+                continue
+            try:
+                if path.stat().st_size > 64 * 1024 * 1024:
+                    continue
+                task_hash = valid_infohash(torrent_infohash(path.read_bytes()))
+            except (OSError, ValueError):
+                continue
+            if task_hash:
+                hashes.add(task_hash)
+    return hashes
 
 
 def bdecode_value(data, position=0, depth=0):
@@ -701,9 +806,10 @@ def make_task(
     hr_hashes,
     hr_candidate_hashes,
     hr_available,
+    publication_hashes=frozenset(),
 ):
     site = site_label(row)
-    status, tone = task_status(row)
+    status, tone = task_status(row, publication_hashes)
     self_publish = status == "自发布"
     tags = str(row.get("tags") or "")
     site_hr = str(row.get("hash") or "").lower() in hr_hashes
@@ -1083,6 +1189,7 @@ for row, (
         next_qb_file_cache[str(row.get("hash") or "").lower()] = cache_entry
     if from_cache:
         qb_file_lists_cached += 1
+publication_hashes = load_publication_hashes()
 hr_status = btschool_hr_records(torrents)
 hr_available = hr_status["available"]
 if not hr_available:
@@ -1168,6 +1275,7 @@ for row in torrents:
             hr_hashes,
             hr_candidate_hashes,
             hr_available,
+            publication_hashes,
         )
     )
 
@@ -1295,6 +1403,7 @@ for bundle in unmatched_groups.values():
                 hr_hashes,
                 hr_candidate_hashes,
                 hr_available,
+                publication_hashes,
             )
         )
     hr = any(task["hr"] for task in tasks)
@@ -1380,6 +1489,10 @@ print(
                 "resources": len(resources),
                 "jellyfinGroups": len(groups),
                 "qbTasks": len(torrents),
+                "selfPublishedQbTasks": sum(
+                    is_self_published(row, publication_hashes)
+                    for row in torrents
+                ),
                 "qbFileListsCached": qb_file_lists_cached,
                 "matchedQbTasks": sum(len(tasks) for tasks in group_tasks.values()),
                 "unmatchedQbTasks": unmatched_tasks,

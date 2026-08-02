@@ -29,6 +29,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "moviepilot_db": "/path/to/moviepilot/config/user.db",
     "qb_backup": "/path/to/qBittorrent/BT_backup",
     "execution_backup": "/path/to/storage-cleanup/qb-backups",
+    # Optional, host-local evidence of torrents that were published by this
+    # account.  An empty list keeps generic installs portable; the collector
+    # still checks its PiNAS default path when this is unset.
+    "publication_ledger_roots": [],
     "allowed_roots": [
         "/path/to/downloads/completed",
         "/path/to/media/movies",
@@ -85,6 +89,17 @@ def normalize_config(raw: object) -> dict[str, Any]:
     merged["version"] = CONFIG_VERSION
     for field in PATH_FIELDS:
         merged[field] = _path(merged[field], field)
+    raw_publication_roots = merged.get("publication_ledger_roots")
+    if raw_publication_roots is None:
+        raw_publication_roots = []
+    if not isinstance(raw_publication_roots, list):
+        raise ConfigurationError("publication_ledger_roots 必须是路径数组。")
+    publication_roots: list[str] = []
+    for index, value in enumerate(raw_publication_roots):
+        item = _path(value, f"publication_ledger_roots[{index}]")
+        if item not in publication_roots:
+            publication_roots.append(item)
+    merged["publication_ledger_roots"] = publication_roots
     if not isinstance(merged.get("allowed_roots"), list):
         raise ConfigurationError("allowed_roots 必须是路径数组。")
     roots: list[str] = []
