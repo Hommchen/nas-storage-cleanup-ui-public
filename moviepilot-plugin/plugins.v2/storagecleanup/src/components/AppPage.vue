@@ -136,6 +136,17 @@ function payloadError(payload, fallback) {
   return payload?.error?.message || fallback
 }
 
+function requestErrorMessage(error, fallback) {
+  const response = error?.response || {}
+  const payload = response.data || error?.data || {}
+  const nested = payload?.error || {}
+  if (nested.code === 'inventory_stale' || response.status === 409 || error?.status === 409) {
+    health.value = { ...health.value, inventoryCurrent: false }
+    return '资源清单已过期，请点击“刷新资源清单”后再操作。浏览器重新加载不会重新核对 NAS。'
+  }
+  return nested.message || payload.message || error?.message || fallback
+}
+
 async function get(path) {
   return unwrapResponse(await props.api.get(`${pluginBase.value}${path}`))
 }
@@ -161,6 +172,9 @@ async function loadStatus() {
     if (!payload?.ok || !payload.snapshot) throw new Error(payloadError(payload, '无法读取清理台状态。'))
     health.value = payload.health || {}
     acceptSnapshot(payload.snapshot)
+    if (health.value.inventoryCurrent === false) {
+      selected.value = []
+    }
   } catch (err) {
     error.value = err?.message || '无法读取清理台状态。'
   } finally {
@@ -206,6 +220,11 @@ async function requestPlan(mode, acknowledged = false) {
   planError.value = ''
   plan.value = null
   finalConfirmation.value = false
+  if (!inventoryCurrent.value) {
+    planError.value = '资源清单已过期，请点击“刷新资源清单”后再操作。浏览器重新加载不会重新核对 NAS。'
+    planLoading.value = false
+    return
+  }
   try {
     const payload = await post('/plan', {
       snapshotId: snapshot.value.snapshotId,
@@ -216,7 +235,7 @@ async function requestPlan(mode, acknowledged = false) {
     if (!payload?.ok || !payload.plan) throw new Error(payloadError(payload, '无法生成执行计划。'))
     plan.value = payload.plan
   } catch (err) {
-    planError.value = err?.message || '无法生成执行计划。'
+    planError.value = requestErrorMessage(err, '无法生成执行计划。')
   } finally {
     planLoading.value = false
   }
@@ -370,7 +389,7 @@ onUnmounted(stopRefreshTimer)
       <div :class="['status-card', { danger: error || !inventoryCurrent }]">
         <i>{{ error || !inventoryCurrent ? '!' : '✓' }}</i>
         <p>
-          <strong>{{ error || (executionEnabled ? '执行链路已连接' : '只读模式') }}</strong>
+          <strong>{{ error || (!inventoryCurrent ? '资源清单待刷新' : executionEnabled ? '执行链路已连接' : '只读模式') }}</strong>
           <span v-if="snapshot.generatedAt">更新于 {{ snapshot.generatedAt.slice(5, 16).replace('T', ' ') }}</span>
         </p>
       </div>
@@ -412,6 +431,15 @@ onUnmounted(stopRefreshTimer)
         {{ refreshMessage }}
       </p>
     </section>
+
+    <div v-if="!inventoryCurrent && !refreshing" class="notice critical stale-notice" role="status">
+      <i>!</i>
+      <p>
+        <strong>资源清单待刷新</strong>
+        <span>浏览器重新加载只重载页面，不会重新核对 NAS；刷新完成前已锁定清理动作。</span>
+      </p>
+      <button type="button" @click="refreshSnapshot">刷新资源清单</button>
+    </div>
 
     <section v-if="onboardingRequired" class="onboarding-card">
       <div>
@@ -558,6 +586,8 @@ onUnmounted(stopRefreshTimer)
             v-for="(action, mode) in ACTIONS"
             :key="mode"
             :class="['action-level', { delete: mode === 'delete' }]"
+            :disabled="!inventoryCurrent || refreshing"
+            :title="!inventoryCurrent ? '请先刷新资源清单' : action.detail"
             type="button"
             @click="openPlan(mode)"
           >
@@ -856,6 +886,8 @@ button { color: inherit; }
 .notice b { color: var(--warn); font-size: 13px; }
 .notice.critical { border-color: rgba(196, 75, 71, .25); background: rgba(196, 75, 71, .08); }
 .notice.critical b { color: var(--danger); }
+.stale-notice { cursor: default; }
+.stale-notice button { flex: 0 0 auto; padding: 8px 12px; border: 1px solid rgba(196, 75, 71, .28); border-radius: 9px; background: var(--surface); color: var(--danger); font-weight: 750; cursor: pointer; }
 .filters { display: flex; gap: 6px; margin-bottom: 12px; }
 .filters button {
   padding: 8px 13px;
@@ -940,6 +972,7 @@ button { color: inherit; }
 .action-buttons { display: contents; }
 .action-level { display: grid; flex: 1; gap: 3px; padding: 10px 14px; border: 1px solid rgba(255, 255, 255, .17); border-radius: 11px; background: rgba(255, 255, 255, .06); color: white; text-align: left; cursor: pointer; }
 .action-level.delete { border-color: rgba(255, 142, 136, .32); background: rgba(196, 75, 71, .28); }
+.action-level:disabled { cursor: not-allowed; opacity: .45; }
 .modal-backdrop {
   position: fixed;
   z-index: 100;
