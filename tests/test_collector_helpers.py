@@ -129,6 +129,13 @@ class CollectorHelperTests(unittest.TestCase):
         self.assertFalse(helpers["looks_like_infohash"]("a" * 39))
         self.assertFalse(helpers["looks_like_infohash"]("Movie Title"))
 
+    def test_jellyfin_disc_image_is_considered_a_media_payload(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            iso = Path(temporary) / "The Girl with All the Gifts.iso"
+            iso.write_bytes(b"fixture")
+
+            self.assertEqual(helpers["video_files"](iso), [iso])
+
     def test_torrent_payload_files_parses_multifile_manifest(self):
         info = (
             b"d5:filesl"

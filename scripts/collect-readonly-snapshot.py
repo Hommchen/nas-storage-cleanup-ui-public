@@ -78,7 +78,20 @@ QUARANTINE_ROOTS = tuple(Path(value) for value in CONFIG["quarantine_roots"].val
 MOVIE = "MediaBrowser.Controller.Entities.Movies.Movie"
 SERIES = "MediaBrowser.Controller.Entities.TV.Series"
 EPISODE = "MediaBrowser.Controller.Entities.TV.Episode"
-VIDEO_EXTENSIONS = {".avi", ".m2ts", ".m4v", ".mkv", ".mov", ".mp4", ".ts", ".webm"}
+# Jellyfin can catalog disc-image movies as video items.  Keep ISO payloads in
+# the inode match set so a completed qB task and its hard-linked library item
+# are represented as one resource instead of a false qB-only entry.
+VIDEO_EXTENSIONS = {
+    ".avi",
+    ".iso",
+    ".m2ts",
+    ".m4v",
+    ".mkv",
+    ".mov",
+    ".mp4",
+    ".ts",
+    ".webm",
+}
 SEASON_RE = re.compile(r"(?i)(?:^|[ ._\-/])S(?:eason[ ._-]*)?(\d{1,2})(?:[ ._\-/]|$)")
 ALLOWED_ROOTS = tuple(CONFIG["allowed_roots"])
 HARDLINK_DISCOVERY_ROOTS = ALLOWED_ROOTS
