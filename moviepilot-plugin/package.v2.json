@@ -7,7 +7,7 @@
     "icon": "https://raw.githubusercontent.com/Hommchen/nas-storage-cleanup-ui-public/main/public/storagecleanup.svg",
     "author": "Hommchen",
     "level": 1,
-    "release": false,
+    "release": true,
     "system_version": ">=2.14.6",
     "history": {
       "v1.0.15": "覆盖 Docker、群晖、Unraid 与多卷布局；候选不唯一时失败关闭",
