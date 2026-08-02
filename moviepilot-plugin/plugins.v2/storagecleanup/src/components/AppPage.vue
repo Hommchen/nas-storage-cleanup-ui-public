@@ -10,6 +10,7 @@ import {
   unwrapResponse,
 } from '../provider.js'
 import { refreshFeedback } from '../refresh-feedback.js'
+import Config from './Config.vue'
 
 const props = defineProps({
   api: { type: Object, default: () => ({}) },
@@ -61,6 +62,7 @@ const recoveryTarget = ref(null)
 const recoveryAction = ref(null)
 const recoveryPhrase = ref('')
 const recovering = ref(false)
+const settingsOpen = ref(false)
 
 const pluginBase = computed(() => `plugin/${props.pluginId || 'StorageCleanup'}`)
 const resources = computed(() => snapshot.value.resources || [])
@@ -74,6 +76,9 @@ const selectedItems = computed(() => resources.value.filter(item => selected.val
 const selectedSize = computed(() => selectedItems.value.reduce((total, item) => total + Number(item.size || 0), 0))
 const executionEnabled = computed(() => Boolean(health.value.executionEnabled))
 const inventoryCurrent = computed(() => health.value.inventoryCurrent !== false)
+const onboardingRequired = computed(() => !loading.value && (
+  !snapshot.value.snapshotId || health.value.configReady === false
+))
 const unresolvedTransactions = computed(() => Number(snapshot.value.stats?.unresolvedTransactions || 0))
 const hrGap = computed(() => Math.max(
   0,
@@ -256,6 +261,13 @@ async function executePlan() {
     }
     executeResult.value = payload.result
     selected.value = []
+    if (plan.value?.mode === 'delete') {
+      const deletedIds = new Set(plan.value.resources.map(item => item.id))
+      snapshot.value = {
+        ...snapshot.value,
+        resources: snapshot.value.resources.filter(item => !deletedIds.has(item.id)),
+      }
+    }
     if (payload.result.snapshotRefreshPending) {
       health.value = { ...health.value, inventoryCurrent: false }
     } else {
@@ -335,6 +347,14 @@ function recoveryExpectedPhrase() {
     : recoveryTarget.value.finalizePhrase
 }
 
+function openSettings() {
+  settingsOpen.value = true
+}
+
+function closeSettings() {
+  settingsOpen.value = false
+}
+
 onMounted(loadStatus)
 onUnmounted(stopRefreshTimer)
 </script>
@@ -370,6 +390,14 @@ onUnmounted(stopRefreshTimer)
         实际占用 {{ descending ? '↓' : '↑' }}
       </button>
       <button
+        class="soft-button settings-button"
+        type="button"
+        aria-label="打开存储清理设置"
+        @click="openSettings"
+      >
+        设置
+      </button>
+      <button
         class="icon-button"
         type="button"
         :disabled="refreshing"
@@ -383,6 +411,15 @@ onUnmounted(stopRefreshTimer)
       <p v-if="refreshing" class="refresh-feedback" role="status" aria-live="polite">
         {{ refreshMessage }}
       </p>
+    </section>
+
+    <section v-if="onboardingRequired" class="onboarding-card">
+      <div>
+        <strong>{{ health.configReady === false ? '清理台还没有完成配置' : '还没有连接到清理后台' }}</strong>
+        <span v-if="error">{{ error }}</span>
+        <span v-else>请由 NAS 管理员先部署 PiNAS 清理台，并完成只读路径探测；插件不会自动登录或配置 NAS。</span>
+      </div>
+      <button type="button" @click="openSettings">打开设置</button>
     </section>
 
     <button
@@ -466,6 +503,9 @@ onUnmounted(stopRefreshTimer)
         <div class="stack-cell library" data-label="媒体库">
           <strong>{{ item.librarySummary }}</strong>
           <span>{{ item.libraryDetail }}</span>
+          <span v-if="item.episodeStatus === 'incomplete'">
+            缺 {{ item.episodeMissing }} 集 · 已有 {{ item.episodeActual }} / 应有 {{ item.episodeExpected }}
+          </span>
         </div>
 
         <div class="seed-cell" data-label="做种与保护">
@@ -593,7 +633,7 @@ onUnmounted(stopRefreshTimer)
           <i>盾</i>
           <p>
             <strong>{{ executionEnabled ? '执行前还需第二次确认' : '执行引擎未启用' }}</strong>
-            <span>最终执行前会重新读取 qB、路径、硬链接和保护状态。</span>
+            <span>最终执行前复核当前清单，执行器只回读所选资源的 qB、路径和硬链接。</span>
           </p>
         </div>
 
@@ -602,6 +642,9 @@ onUnmounted(stopRefreshTimer)
           <span>
             停止 {{ executeResult.qbStopped }} · 退出 {{ executeResult.qbRemoved }} ·
             删除文件入口 {{ executeResult.filesDeleted }} · 清理索引 {{ executeResult.moviepilotIndexesDeleted }}
+          </span>
+          <span v-if="executeResult.snapshotRefreshPending">
+            {{ planMode === 'delete' ? '已从当前列表移除，请刷新资源清单后继续操作。' : '操作已完成，请刷新资源清单后继续操作。' }}
           </span>
           <button type="button" @click="closePlan">完成</button>
         </div>
@@ -616,7 +659,7 @@ onUnmounted(stopRefreshTimer)
               :disabled="executing || planExpired"
               @click="executePlan"
             >
-              {{ executing ? '正在二次复核…' : `确认${currentAction?.title}` }}
+              {{ executing ? '正在定向复核…' : `确认${currentAction?.title}` }}
             </button>
           </div>
         </div>
@@ -665,6 +708,24 @@ onUnmounted(stopRefreshTimer)
               {{ recovering ? '处理中…' : '执行恢复' }}
             </button>
           </div>
+        </section>
+      </div>
+
+      <div v-if="settingsOpen" class="modal-backdrop" @click.self="closeSettings">
+        <section
+          class="modal settings-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="storage-cleanup-settings-title"
+        >
+          <header>
+            <div>
+              <span>清理台配置</span>
+              <h2 id="storage-cleanup-settings-title">设置</h2>
+            </div>
+            <button type="button" aria-label="关闭设置" @click="closeSettings">×</button>
+          </header>
+          <Config :api="props.api" :plugin-id="props.pluginId" />
         </section>
       </div>
     </Teleport>
@@ -765,6 +826,11 @@ button { color: inherit; }
   cursor: pointer;
 }
 .soft-button { padding: 0 14px; }
+.settings-button { border-color: rgba(var(--v-theme-primary, 59, 130, 246), .35); color: var(--primary); font-weight: 750; }
+.onboarding-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; border: 1px solid rgba(var(--v-theme-primary, 59, 130, 246), .22); border-radius: 12px; background: var(--primary-soft); }
+.onboarding-card div { display: grid; gap: 4px; }
+.onboarding-card span { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.onboarding-card button { flex: 0 0 auto; padding: 9px 14px; border: 1px solid rgba(var(--v-theme-primary, 59, 130, 246), .35); border-radius: 8px; background: transparent; color: var(--primary); cursor: pointer; font-weight: 700; }
 .icon-button { width: 42px; font-size: 20px; }
 .refresh-feedback {
   flex: 0 0 100%;
@@ -880,7 +946,7 @@ button { color: inherit; }
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 28px;
+  padding: 28px 28px 28px calc(28px + 260px);
   background: rgba(15, 23, 42, .55);
   backdrop-filter: blur(6px);
 }
@@ -931,6 +997,8 @@ button { color: inherit; }
 .error-text { color: var(--danger); font-size: 13px; }
 .execution-result { color: var(--good); background: rgba(22, 131, 107, .08); }
 .compact-modal { width: min(650px, 90vw); }
+.settings-modal { width: min(980px, 94vw); max-height: calc(100dvh - 56px); padding: 20px; }
+.settings-modal :deep(.config-page) { max-width: none; padding: 0; }
 .gap-row, .recovery-row { display: flex; align-items: center; gap: 8px; padding: 11px 4px; border-bottom: 1px solid var(--line); }
 .gap-row p, .recovery-row p { flex: 1; }
 .gap-row span, .recovery-row span { color: var(--muted); font-size: 11px; }
@@ -944,6 +1012,7 @@ button { color: inherit; }
   }
 }
 @media (max-width: 760px) {
+  .modal-backdrop { padding: 16px; }
   .cleanup-app {
     min-width: 0;
     overflow-x: clip;
@@ -969,7 +1038,7 @@ button { color: inherit; }
   }
   .toolbar {
     display: grid;
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
     gap: 8px;
   }
   .search {
