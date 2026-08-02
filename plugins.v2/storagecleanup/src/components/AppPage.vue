@@ -1182,8 +1182,16 @@ button { color: inherit; }
 .recovery-confirm { display: grid; gap: 8px; margin-top: 14px; padding: 14px; border-radius: 12px; background: rgba(196, 75, 71, .08); }
 .recovery-confirm input { height: 40px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: inherit; }
 @media (max-width: 1250px) {
+  .cleanup-app {
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
+  }
   .table-head, .resource-row {
-    grid-template-columns: 38px minmax(240px, 1.3fr) minmax(150px, .7fr) minmax(310px, 1.35fr) 120px minmax(200px, .9fr);
+    grid-template-columns: 38px minmax(0, 1.25fr) minmax(0, .75fr) minmax(0, 1.2fr) minmax(84px, .6fr) minmax(0, .85fr);
+  }
+  .seed-cell, .seed-task, .impact {
+    min-width: 0;
   }
 }
 @media (max-width: 760px) {
