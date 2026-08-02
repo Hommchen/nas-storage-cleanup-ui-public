@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
+from pathlib import Path
 import unittest
 
 from scripts.media_metadata import (
@@ -120,6 +122,19 @@ def raw_resource(
 
 
 class MediaMetadataTests(unittest.TestCase):
+    def test_anne_happy_episode_overrides_are_tv_identity(self):
+        path = Path(__file__).resolve().parents[1] / "db" / "media-name-overrides.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        entries = [
+            entry
+            for entry in data["entries"]
+            if entry.get("englishTitle") == "Anne Happy"
+        ]
+
+        self.assertEqual(3, len(entries))
+        self.assertTrue(all(entry["kind"] == "tv" for entry in entries))
+        self.assertTrue(all(entry["identity"] == "tv:manual:anne-happy-2016" for entry in entries))
+
     def test_merge_preserves_moviepilot_index_identity(self):
         index = {
             "id": 188,
