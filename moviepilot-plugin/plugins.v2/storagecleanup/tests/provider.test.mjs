@@ -4,7 +4,10 @@ import assert from 'node:assert/strict'
 import {
   createLatestPlanApi,
   filterResources,
+  FILTERS,
   formatGiB,
+  isIncompleteTv,
+  mediaType,
   matchesFilter,
   unwrapResponse,
 } from '../src/provider.js'
@@ -29,6 +32,11 @@ test('review filter means no seeding task or protection restriction', () => {
   assert.equal(matchesFilter(resources[1], 'review'), false)
 })
 
+test('generic filter list does not expose brush-flow tasks', () => {
+  assert.equal(FILTERS.some(filter => filter.id === 'brush'), false)
+  assert.equal(FILTERS.some(filter => filter.label === '刷流任务'), false)
+})
+
 test('resource filtering supports bilingual search and size order', () => {
   assert.deepEqual(
     filterResources(resources, { filter: 'all', search: 'Back to', safeOnly: false, descending: true }).map(item => item.id),
@@ -37,6 +45,33 @@ test('resource filtering supports bilingual search and size order', () => {
   assert.deepEqual(
     filterResources(resources, { filter: 'all', search: '', safeOnly: false, descending: true }).map(item => item.id),
     ['safe', 'hr'],
+  )
+})
+
+test('media type filters separate movies, complete TV and incomplete TV', () => {
+  const typedResources = [
+    { id: 'movie', title: '电影', type: '电影', library: false, size: 30 },
+    { id: 'tv', title: '完整剧集', type: '电视剧', library: true, edition: 'S01 · 8 集', size: 20 },
+    { id: 'tv-incomplete', title: '缺集剧集', type: '电视剧', library: true, edition: 'S01 · 6 集', episodeExpected: 8, episodeActual: 6, episodeIncomplete: true, size: 10 },
+    { id: 'tv-unimported', title: '未入库剧集', type: '电视剧', library: false, edition: 'S01 · 未入库', size: 5 },
+  ]
+
+  assert.equal(mediaType(typedResources[0]), 'movie')
+  assert.equal(mediaType(typedResources[1]), 'tv')
+  assert.equal(isIncompleteTv(typedResources[2]), true)
+  assert.equal(isIncompleteTv(typedResources[3]), false)
+  assert.equal(isIncompleteTv(typedResources[0]), false)
+  assert.deepEqual(
+    filterResources(typedResources, { filter: 'movie', search: '', safeOnly: false, descending: true }).map(item => item.id),
+    ['movie'],
+  )
+  assert.deepEqual(
+    filterResources(typedResources, { filter: 'tv', search: '', safeOnly: false, descending: true }).map(item => item.id),
+    ['tv', 'tv-incomplete', 'tv-unimported'],
+  )
+  assert.deepEqual(
+    filterResources(typedResources, { filter: 'tv-incomplete', search: '', safeOnly: false, descending: true }).map(item => item.id),
+    ['tv-incomplete'],
   )
 })
 
