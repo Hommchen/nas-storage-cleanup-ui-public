@@ -2,7 +2,9 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
   ACTIONS,
-  FILTERS,
+  FILTER_GROUPS,
+  createFilterState,
+  filterOptionCount,
   filterResources,
   formatBytes,
   formatGiB,
@@ -33,7 +35,7 @@ const refreshing = ref(false)
 const refreshElapsed = ref(0)
 const error = ref('')
 const search = ref('')
-const activeFilter = ref('all')
+const filterState = ref(createFilterState())
 const safeOnly = ref(false)
 const descending = ref(true)
 const selected = ref([])
@@ -67,7 +69,7 @@ const settingsOpen = ref(false)
 const pluginBase = computed(() => `plugin/${props.pluginId || 'StorageCleanup'}`)
 const resources = computed(() => snapshot.value.resources || [])
 const visible = computed(() => filterResources(resources.value, {
-  filter: activeFilter.value,
+  filters: filterState.value,
   search: search.value,
   safeOnly: safeOnly.value,
   descending: descending.value,
@@ -92,24 +94,34 @@ const hrUnassigned = computed(() => Number(
   snapshot.value.stats?.hrMissingUncovered ??
   0,
 ))
-const filters = computed(() => FILTERS.map(filter => ({
-  ...filter,
-  count: resources.value.filter(item => {
-    if (filter.id === 'all') return true
-    return filterResources([item], {
-      filter: filter.id,
-      search: '',
-      safeOnly: false,
-      descending: true,
-    }).length === 1
-  }).length,
+const filterGroups = computed(() => FILTER_GROUPS.map(group => ({
+  ...group,
+  options: group.options.map(option => ({
+    ...option,
+    count: filterOptionCount(resources.value, filterState.value, group.id, option.id),
+  })),
 })))
+const activeFilterChips = computed(() => {
+  const chips = []
+  for (const group of FILTER_GROUPS) {
+    const selected = group.id === 'flags'
+      ? filterState.value.flags
+      : [filterState.value[group.id]]
+    for (const option of group.options) {
+      if (option.id !== 'all' && selected.includes(option.id)) {
+        chips.push({ group: group.id, id: option.id, label: option.label })
+      }
+    }
+  }
+  return chips
+})
 const allVisibleSelected = computed(() => {
   const selectable = visible.value.filter(item => !item.protected)
   return selectable.length > 0 && selectable.every(item => selected.value.includes(item.id))
 })
 const currentAction = computed(() => planMode.value ? ACTIONS[planMode.value] : null)
 const planExpired = computed(() => Boolean(plan.value && Date.parse(plan.value.expiresAt) <= Date.now()))
+const allFiltersDefault = computed(() => activeFilterChips.value.length === 0)
 const refreshMessage = computed(() => {
   if (!refreshing.value) return ''
   return refreshFeedback(refreshElapsed.value)
@@ -213,6 +225,39 @@ function toggleVisible() {
   selected.value = allVisibleSelected.value
     ? selected.value.filter(id => !ids.includes(id))
     : [...new Set([...selected.value, ...ids])]
+}
+
+function isFilterActive(group, option) {
+  if (group.id === 'flags') return filterState.value.flags.includes(option.id)
+  return filterState.value[group.id] === option.id
+}
+
+function selectFilter(group, option) {
+  if (group.id === 'flags') {
+    filterState.value = {
+      ...filterState.value,
+      flags: filterState.value.flags.includes(option.id)
+        ? filterState.value.flags.filter(id => id !== option.id)
+        : [...filterState.value.flags, option.id],
+    }
+    return
+  }
+  filterState.value = { ...filterState.value, [group.id]: option.id }
+}
+
+function clearFilters() {
+  filterState.value = createFilterState()
+}
+
+function clearFilterChip(chip) {
+  if (chip.group === 'flags') {
+    filterState.value = {
+      ...filterState.value,
+      flags: filterState.value.flags.filter(id => id !== chip.id),
+    }
+    return
+  }
+  filterState.value = { ...filterState.value, [chip.group]: 'all' }
 }
 
 async function requestPlan(mode, acknowledged = false) {
@@ -482,16 +527,47 @@ onUnmounted(stopRefreshTimer)
       <b>查看明细</b>
     </button>
 
-    <nav class="filters" aria-label="资源筛选">
-      <button
-        v-for="filter in filters"
-        :key="filter.id"
-        :class="{ active: activeFilter === filter.id }"
-        type="button"
-        @click="activeFilter = filter.id"
-      >
-        {{ filter.label }} <span>{{ filter.count }}</span>
-      </button>
+    <nav class="filter-panel" aria-label="资源筛选">
+      <div v-for="group in filterGroups" :key="group.id" class="filter-row">
+        <div class="filter-label">
+          {{ group.label }}
+          <small>{{ group.multi ? '可多选' : '单选' }}</small>
+        </div>
+        <div class="filter-options">
+          <button
+            v-for="option in group.options"
+            :key="option.id"
+            :class="['filter-option', { active: isFilterActive(group, option) }, { warning: option.tone === 'warning' }]"
+            :aria-pressed="isFilterActive(group, option)"
+            type="button"
+            @click="selectFilter(group, option)"
+          >
+            {{ option.label }} <span>{{ option.count }}</span>
+          </button>
+        </div>
+      </div>
+      <div class="filter-footer">
+        <div class="active-filter-chips" aria-live="polite">
+          <span v-if="allFiltersDefault" class="filter-caption">当前筛选：全部资源</span>
+          <template v-else>
+            <span class="filter-caption">当前筛选</span>
+            <button
+              v-for="chip in activeFilterChips"
+              :key="`${chip.group}-${chip.id}`"
+              class="active-filter-chip"
+              type="button"
+              @click="clearFilterChip(chip)"
+            >
+              {{ chip.label }} ×
+            </button>
+          </template>
+        </div>
+        <div class="filter-result-count">
+          <strong>{{ visible.length }}</strong> 条结果
+          <button v-if="!allFiltersDefault" type="button" @click="clearFilters">清除筛选</button>
+        </div>
+      </div>
+      <p class="filter-help">同组条件单选；不同组条件按 AND 组合。待处理 / 质量标签可以叠加。</p>
     </nav>
 
     <section class="resource-card">
@@ -888,17 +964,83 @@ button { color: inherit; }
 .notice.critical b { color: var(--danger); }
 .stale-notice { cursor: default; }
 .stale-notice button { flex: 0 0 auto; padding: 8px 12px; border: 1px solid rgba(196, 75, 71, .28); border-radius: 9px; background: var(--surface); color: var(--danger); font-weight: 750; cursor: pointer; }
-.filters { display: flex; gap: 6px; margin-bottom: 12px; }
-.filters button {
-  padding: 8px 13px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: transparent;
+.filter-panel {
+  display: grid;
+  gap: 0;
+  margin-bottom: 12px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--primary-soft));
+}
+.filter-row {
+  display: grid;
+  grid-template-columns: 126px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.filter-label {
+  padding-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.filter-label small {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 500;
+  opacity: .8;
+}
+.filter-options { display: flex; flex-wrap: wrap; gap: 7px; }
+.filter-option {
+  min-height: 34px;
+  padding: 6px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
   color: var(--muted);
   cursor: pointer;
+  transition: .15s ease;
 }
-.filters button.active { border-color: var(--line); background: var(--surface); color: var(--ink); font-weight: 750; box-shadow: 0 4px 12px rgba(15, 23, 42, .04); }
-.filters span { margin-left: 5px; padding: 2px 6px; border-radius: 99px; background: rgba(100, 116, 139, .10); font-size: 11px; }
+.filter-option:hover { border-color: var(--primary); color: var(--ink); }
+.filter-option.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 750;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, .04);
+}
+.filter-option.warning.active { border-color: var(--warn); color: var(--warn); background: rgba(184, 107, 17, .08); }
+.filter-option span {
+  display: inline-block;
+  min-width: 20px;
+  margin-left: 5px;
+  padding: 2px 6px;
+  border-radius: 99px;
+  background: rgba(100, 116, 139, .10);
+  font-size: 11px;
+  text-align: center;
+}
+.filter-option.active span { background: color-mix(in srgb, currentColor 14%, transparent); }
+.filter-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 42px; }
+.active-filter-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.filter-caption { color: var(--muted); font-size: 11px; }
+.active-filter-chip {
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 99px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 11px;
+  cursor: pointer;
+}
+.filter-result-count { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.filter-result-count strong { color: var(--ink); font-size: 17px; }
+.filter-result-count button { margin-left: 8px; padding: 0; border: 0; background: transparent; color: var(--primary); font-size: 11px; cursor: pointer; }
+.filter-help { margin: 0; padding: 0 0 10px; color: var(--muted); font-size: 10px; }
 .resource-card { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
 .table-head, .resource-row {
   display: grid;
@@ -1092,18 +1234,18 @@ button { color: inherit; }
   .notice p strong { font-size: 14px; }
   .notice p span { font-size: 11px; }
   .notice b { display: none; }
-  .filters {
-    overflow-x: auto;
+  .filter-panel {
     width: calc(100vw - 24px);
-    padding: 0 0 4px;
-    scrollbar-width: none;
+    padding: 0 10px;
   }
-  .filters::-webkit-scrollbar { display: none; }
-  .filters button {
-    flex: 0 0 auto;
-    padding: 8px 11px;
-    white-space: nowrap;
-  }
+  .filter-row { display: block; padding: 10px 0; }
+  .filter-label { padding: 0 0 7px; }
+  .filter-options { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+  .filter-options::-webkit-scrollbar { display: none; }
+  .filter-option { flex: 0 0 auto; white-space: nowrap; }
+  .filter-footer { align-items: flex-start; flex-direction: column; gap: 6px; padding: 7px 0; }
+  .filter-result-count { width: 100%; }
+  .filter-help { line-height: 1.45; }
   .resource-card {
     overflow: visible;
     border: 0;

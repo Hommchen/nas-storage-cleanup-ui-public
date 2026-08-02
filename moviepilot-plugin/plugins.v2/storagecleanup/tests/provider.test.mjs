@@ -3,12 +3,16 @@ import assert from 'node:assert/strict'
 
 import {
   createLatestPlanApi,
+  createFilterState,
+  FILTER_GROUPS,
   filterResources,
+  filterOptionCount,
   FILTERS,
   formatGiB,
   isIncompleteTv,
   mediaType,
   matchesFilter,
+  matchesFilterState,
   unwrapResponse,
 } from '../src/provider.js'
 
@@ -48,7 +52,7 @@ test('resource filtering supports bilingual search and size order', () => {
   )
 })
 
-test('media type filters separate movies, complete TV and incomplete TV', () => {
+test('media type filters include all TV and retain an incomplete-TV legacy shortcut', () => {
   const typedResources = [
     { id: 'movie', title: '电影', type: '电影', library: false, size: 30 },
     { id: 'tv', title: '完整剧集', type: '电视剧', library: true, edition: 'S01 · 8 集', size: 20 },
@@ -73,6 +77,25 @@ test('media type filters separate movies, complete TV and incomplete TV', () => 
     filterResources(typedResources, { filter: 'tv-incomplete', search: '', safeOnly: false, descending: true }).map(item => item.id),
     ['tv-incomplete'],
   )
+})
+
+test('grouped filters combine with AND and quality flags can stack', () => {
+  const typedResources = [
+    { id: 'movie', type: '电影', library: true, protected: false, qbSummary: '无 qB 任务', size: 30 },
+    { id: 'complete-tv', type: '电视剧', library: true, metadataVerified: true, protected: false, qbSummary: '1 个 qB 任务', size: 20 },
+    { id: 'incomplete-tv', type: '电视剧', library: false, episodeIncomplete: true, metadataVerified: false, protected: true, hr: true, qbSummary: '1 个 qB 任务', size: 10 },
+  ]
+  const state = { ...createFilterState(), type: 'tv', library: 'not-imported', flags: ['incomplete', 'name-pending'] }
+
+  assert.equal(matchesFilterState(typedResources[2], state), true)
+  assert.equal(matchesFilterState(typedResources[1], state), false)
+  assert.deepEqual(
+    filterResources(typedResources, { filters: state, search: '', safeOnly: false, descending: true }).map(item => item.id),
+    ['incomplete-tv'],
+  )
+  assert.equal(filterOptionCount(typedResources, createFilterState(), 'type', 'tv'), 2)
+  assert.equal(filterOptionCount(typedResources, { ...createFilterState(), type: 'tv' }, 'library', 'not-imported'), 1)
+  assert.equal(FILTER_GROUPS.find(group => group.id === 'flags')?.multi, true)
 })
 
 test('MoviePilot response wrapper is normalized', () => {

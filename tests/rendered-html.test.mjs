@@ -41,7 +41,7 @@ test("renders the resource list with the final column model", async () => {
   assert.match(html, /<span>资源<\/span><span>媒体库<\/span><span>做种与保护<\/span>/);
   assert.match(html, /<span>实际占用<\/span><span>完整删除影响<\/span>/);
   assert.match(html, /仅看无做种限制/);
-  assert.match(html, /名称待核/);
+  assert.match(html, /名称待确认/);
   assert.doesNotMatch(html, /<span>当前情况<\/span>/);
   assert.doesNotMatch(html, /<span>qB \/ PT<\/span>/);
   assert.doesNotMatch(html, /仅看会影响做种/);

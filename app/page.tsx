@@ -2,7 +2,22 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type Filter = "all" | "library" | "hr" | "brush" | "review" | "names";
+type LegacyFilter =
+  | "all"
+  | "movie"
+  | "tv"
+  | "tv-incomplete"
+  | "library"
+  | "hr"
+  | "review"
+  | "names";
+type FilterGroupId = "type" | "library" | "seed" | "flags";
+type FilterState = {
+  type: "all" | "movie" | "tv";
+  library: "all" | "imported" | "not-imported";
+  seed: "all" | "hr" | "none";
+  flags: string[];
+};
 type ActionMode = "pause" | "retire" | "delete";
 type ControlStatus = "connecting" | "ready" | "offline";
 
@@ -25,6 +40,7 @@ type Resource = {
   sizeLabel: string;
   reclaimLabel: string;
   library: boolean;
+  incomplete?: boolean;
   hr: boolean;
   hrPending?: boolean;
   brush: boolean;
@@ -178,24 +194,96 @@ const emptySnapshot: Snapshot = {
   },
   resources: [],
 };
-const filterLabels: { id: Filter; label: string }[] = [
-  { id: "all", label: "全部资源" },
-  { id: "library", label: "媒体库已入库" },
-  { id: "hr", label: "H&R 保护中" },
-  { id: "brush", label: "刷流任务" },
-  { id: "review", label: "无做种限制" },
-  { id: "names", label: "名称待核" },
+const filterGroups: {
+  id: FilterGroupId;
+  label: string;
+  multi: boolean;
+  options: { id: string; label: string; tone?: "warning" }[];
+}[] = [
+  {
+    id: "type",
+    label: "资源类型",
+    multi: false,
+    options: [
+      { id: "all", label: "全部资源" },
+      { id: "movie", label: "电影" },
+      { id: "tv", label: "电视剧" },
+    ],
+  },
+  {
+    id: "library",
+    label: "媒体库状态",
+    multi: false,
+    options: [
+      { id: "all", label: "全部" },
+      { id: "imported", label: "已入库" },
+      { id: "not-imported", label: "未入库" },
+    ],
+  },
+  {
+    id: "seed",
+    label: "做种约束",
+    multi: false,
+    options: [
+      { id: "all", label: "全部" },
+      { id: "hr", label: "H&R 保护中", tone: "warning" },
+      { id: "none", label: "无做种要求" },
+    ],
+  },
+  {
+    id: "flags",
+    label: "待处理 / 质量",
+    multi: true,
+    options: [
+      { id: "incomplete", label: "剧集不完整", tone: "warning" },
+      { id: "name-pending", label: "名称待确认" },
+    ],
+  },
 ];
 
-function matchesFilter(item: Resource, filter: Filter) {
+function createFilterState(): FilterState {
+  return { type: "all", library: "all", seed: "all", flags: [] };
+}
+
+function matchesFilter(item: Resource, filter: LegacyFilter) {
   if (filter === "all") return true;
+  if (filter === "movie") return item.type === "电影";
+  if (filter === "tv") return item.type === "电视剧";
+  if (filter === "tv-incomplete") return isIncompleteTv(item);
   if (filter === "library") return item.library;
   if (filter === "hr") return item.hr || Boolean(item.hrPending);
-  if (filter === "brush") return item.brush;
   if (filter === "review") {
     return !item.protected && item.qbSummary === "无 qB 任务";
   }
   return item.metadataVerified === false;
+}
+
+function isIncompleteTv(item: Resource) {
+  if (item.type !== "电视剧") return false;
+  const libraryText = `${item.edition || ""} ${item.librarySummary || ""} ${item.libraryDetail || ""}`;
+  return item.incomplete === true || !item.library || /未入库/.test(libraryText);
+}
+
+function matchesFilterState(item: Resource, state: FilterState) {
+  if (state.type !== "all" && (state.type === "movie" ? item.type !== "电影" : item.type !== "电视剧")) return false;
+  if (state.library === "imported" && !item.library) return false;
+  if (state.library === "not-imported" && item.library) return false;
+  if (state.seed === "hr" && !matchesFilter(item, "hr")) return false;
+  if (state.seed === "none" && !matchesFilter(item, "review")) return false;
+  if (state.flags.includes("incomplete") && !matchesFilter(item, "tv-incomplete")) return false;
+  if (state.flags.includes("name-pending") && item.metadataVerified !== false) return false;
+  return true;
+}
+
+function filterOptionCount(resources: Resource[], state: FilterState, group: FilterGroupId, option: string) {
+  const candidate: FilterState = { ...state, flags: [...state.flags] };
+  if (group === "type") candidate.type = option as FilterState["type"];
+  if (group === "library") candidate.library = option as FilterState["library"];
+  if (group === "seed") candidate.seed = option as FilterState["seed"];
+  if (group === "flags") {
+    candidate.flags = option === "all" ? [] : [...new Set([...candidate.flags, option])];
+  }
+  return resources.filter((item) => matchesFilterState(item, candidate)).length;
 }
 
 function formatGiB(size: number) {
@@ -232,7 +320,7 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshElapsed, setRefreshElapsed] = useState(0);
   const [snapshotError, setSnapshotError] = useState("");
-  const [activeFilter, setActiveFilter] = useState<Filter>("all");
+  const [filterState, setFilterState] = useState<FilterState>(createFilterState);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [safeOnly, setSafeOnly] = useState(false);
@@ -417,18 +505,34 @@ export default function Home() {
     snapshot.stats.unresolvedTransactions ?? 0;
   const filters = useMemo(
     () =>
-      filterLabels.map((filter) => ({
-        ...filter,
-        count: resources.filter((item) => matchesFilter(item, filter.id))
-          .length,
+      filterGroups.map((group) => ({
+        ...group,
+        options: group.options.map((option) => ({
+          ...option,
+          count: filterOptionCount(resources, filterState, group.id, option.id),
+        })),
       })),
-    [resources],
+    [resources, filterState],
+  );
+  const activeFilterChips = useMemo(
+    () =>
+      filterGroups.flatMap((group) =>
+        group.options
+          .filter((option) =>
+            option.id !== "all" &&
+            (group.id === "flags"
+              ? filterState.flags.includes(option.id)
+              : filterState[group.id] === option.id),
+          )
+          .map((option) => ({ group: group.id, id: option.id, label: option.label })),
+      ),
+    [filterState],
   );
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
     return resources
       .filter((item) => {
-        const filterMatch = matchesFilter(item, activeFilter);
+        const filterMatch = matchesFilterState(item, filterState);
         const safeMatch =
           !safeOnly ||
           (!item.protected && item.qbSummary === "无 qB 任务");
@@ -443,7 +547,7 @@ export default function Home() {
         return sizeOrder || left.title.localeCompare(right.title, "zh-CN");
       });
   }, [
-    activeFilter,
+    filterState,
     resources,
     safeOnly,
     search,
@@ -559,6 +663,38 @@ export default function Home() {
     );
   };
 
+  const isFilterActive = (group: FilterGroupId, option: string) =>
+    group === "flags"
+      ? filterState.flags.includes(option)
+      : filterState[group] === option;
+
+  const selectFilter = (group: FilterGroupId, option: string) => {
+    setFilterState((current) => {
+      if (group === "flags") {
+        return {
+          ...current,
+          flags: current.flags.includes(option)
+            ? current.flags.filter((id) => id !== option)
+            : [...current.flags, option],
+        };
+      }
+      return { ...current, [group]: option } as FilterState;
+    });
+  };
+
+  const clearFilters = () => setFilterState(createFilterState());
+
+  const clearFilterChip = (group: FilterGroupId, option: string) => {
+    if (group === "flags") {
+      setFilterState((current) => ({
+        ...current,
+        flags: current.flags.filter((id) => id !== option),
+      }));
+      return;
+    }
+    setFilterState((current) => ({ ...current, [group]: "all" }) as FilterState);
+  };
+
   const openPlan = (mode: ActionMode) => {
     setClock(Date.now());
     setActionMode(mode);
@@ -629,9 +765,22 @@ export default function Home() {
       }
       setExecuteResult(payload.result);
       setSelected([]);
+      if (plan.mode === "delete") {
+        const deletedIds = new Set(plan.resources.map((item) => item.id));
+        setSnapshot((current) => ({
+          ...current,
+          resources: current.resources.filter(
+            (item) => !deletedIds.has(item.id),
+          ),
+        }));
+      }
       if (payload.result.snapshotRefreshPending) {
         setInventoryCurrent(false);
-        setSnapshotError("操作已完成，但最新资源清单刷新失败；新操作已锁定。");
+        setSnapshotError(
+          plan.mode === "delete"
+            ? "操作已完成，已从当前列表移除；刷新资源清单后同步其余统计。"
+            : "操作已完成，但最新资源清单刷新失败；新操作已锁定。",
+        );
       } else {
         try {
           const snapshotResponse = await fetch(`${CONTROL_API}/v1/snapshot`, {
@@ -987,19 +1136,58 @@ export default function Home() {
           </button>
         )}
 
-        <div className="filter-row">
-          {filters.map((filter) => (
-            <button
-              type="button"
-              key={filter.id}
-              className={activeFilter === filter.id ? "active" : ""}
-              onClick={() => setActiveFilter(filter.id)}
-            >
-              {filter.label}
-              <span>{filter.count}</span>
-            </button>
+        <section className="resource-filter-panel" aria-label="资源筛选">
+          {filters.map((group) => (
+            <div className="resource-filter-group" key={group.id}>
+              <div className="resource-filter-label">
+                {group.label}
+                <small>{group.multi ? "可多选" : "单选"}</small>
+              </div>
+              <div className="resource-filter-options">
+                {group.options.map((option) => (
+                  <button
+                    type="button"
+                    key={option.id}
+                    className={`resource-filter-option ${isFilterActive(group.id, option.id) ? "active" : ""} ${option.tone === "warning" ? "warning" : ""}`}
+                    aria-pressed={isFilterActive(group.id, option.id)}
+                    onClick={() => selectFilter(group.id, option.id)}
+                  >
+                    {option.label}
+                    <span>{option.count}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
-        </div>
+          <div className="resource-filter-footer">
+            <div className="resource-filter-chips" aria-live="polite">
+              {activeFilterChips.length === 0 ? (
+                <span className="resource-filter-caption">当前筛选：全部资源</span>
+              ) : (
+                <>
+                  <span className="resource-filter-caption">当前筛选</span>
+                  {activeFilterChips.map((chip) => (
+                    <button
+                      type="button"
+                      className="resource-filter-chip"
+                      key={`${chip.group}-${chip.id}`}
+                      onClick={() => clearFilterChip(chip.group, chip.id)}
+                    >
+                      {chip.label} ×
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+            <div className="resource-filter-result">
+              <strong>{visible.length}</strong> 条结果
+              {activeFilterChips.length > 0 && (
+                <button type="button" onClick={clearFilters}>清除筛选</button>
+              )}
+            </div>
+          </div>
+          <p className="resource-filter-help">同组条件单选；不同组条件按 AND 组合。待处理 / 质量标签可以叠加。</p>
+        </section>
 
         <section className="resource-panel">
           <div className="resource-table">
@@ -1561,7 +1749,7 @@ export default function Home() {
                   {plan?.canExecute
                     ? planExpired
                       ? "计划已过期，不能继续执行。"
-                      : "第二次点击前，系统会再次刷新 NAS 状态。"
+                      : "第二次点击前会复核当前清单，执行器只回读所选资源。"
                     : "修复全部拦截项后才能进入执行确认。"}
                 </small>
               </p>
@@ -1584,7 +1772,9 @@ export default function Home() {
                     ? `已清理 ${executeResult.moviepilotIndexesDeleted} 条 MoviePilot 媒体索引。`
                     : ""}
                   {executeResult.snapshotRefreshPending
-                    ? " 最新资源清单刷新失败；新操作保持锁定。"
+                    ? plan?.mode === "delete"
+                      ? " 已从当前列表移除；请刷新资源清单后继续操作。"
+                      : " 操作已完成；请刷新资源清单后继续操作。"
                     : ""}
                 </span>
                 <button type="button" onClick={closePlan}>
@@ -1593,7 +1783,7 @@ export default function Home() {
               </div>
             ) : confirmationOpen ? (
               <section className="final-confirmation">
-                <strong>请再次点击确认，执行前系统会再次刷新 NAS 状态</strong>
+                <strong>请再次点击确认，执行前会复核当前清单并回读所选资源</strong>
                 {executeError && (
                   <p className="execute-error" role="alert">
                     {executeError}
@@ -1620,7 +1810,7 @@ export default function Home() {
                     }
                     onClick={() => void executePlan()}
                   >
-                    {executing ? "正在二次复核…" : `确认${plan?.modeLabel}`}
+                    {executing ? "正在定向复核…" : `确认${plan?.modeLabel}`}
                   </button>
                 </div>
               </section>

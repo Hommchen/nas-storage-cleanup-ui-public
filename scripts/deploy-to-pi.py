@@ -69,6 +69,17 @@ def main() -> int:
     PI_HOST = args.pi_host
     PI_BASE = args.pi_base
     service_user = pi_user()
+    plugin_manifest = json.loads(
+        (PROJECT_ROOT / "moviepilot-plugin/package.v2.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    plugin_version = str(plugin_manifest["StorageCleanup"]["version"])
+    plugin_remote_path = f"dist/v{plugin_version}/assets/remoteEntry.js"
+    if not plugin_version or any(
+        character not in "0123456789." for character in plugin_version
+    ):
+        raise ValueError("StorageCleanup 插件版本号无效。")
     release_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     release = PI_BASE / "releases" / release_id
     shared_runtime = PI_BASE / "shared/runtime"
@@ -145,7 +156,7 @@ cd "$release/moviepilot-plugin/plugins.v2/storagecleanup"
 /usr/bin/npm ci --no-audit --no-fund --registry=https://registry.npmjs.org --replace-registry-host=never
 /usr/bin/npm run check
 /usr/bin/npm run build
-test -s dist/v1.0.7/assets/remoteEntry.js
+test -s {shlex.quote(plugin_remote_path)}
 cd "$release"
 /usr/bin/python3 scripts/collect-readonly-snapshot.py --local-nas --config {shlex.quote(str(shared_config))}
 /usr/bin/python3 - <<'PY'
@@ -282,7 +293,7 @@ remote = next(
 )
 assert remote
 assert str(remote.get("url") or "").endswith(
-    "/dist/v1.0.7/assets/remoteEntry.js"
+    "/{plugin_remote_path}"
 )
 print(json.dumps({{
     "ok": True,
