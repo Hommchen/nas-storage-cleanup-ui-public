@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 
@@ -51,6 +52,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import time
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
@@ -96,6 +98,7 @@ SEASON_RE = re.compile(r"(?i)(?:^|[ ._\-/])S(?:eason[ ._-]*)?(\d{1,2})(?:[ ._\-/
 ALLOWED_ROOTS = tuple(CONFIG["allowed_roots"])
 HARDLINK_DISCOVERY_ROOTS = ALLOWED_ROOTS
 HR_HASH_CACHE = __HR_HASH_CACHE__
+HR_SOURCE_CACHE = __HR_SOURCE_CACHE__
 QB_FILE_CACHE = __QB_FILE_CACHE__
 DEFAULT_PUBLICATION_LEDGER_ROOT = Path(
     "/mnt/sdc/library-tools/reports/pt-release-packets"
@@ -651,84 +654,247 @@ def verified_complete_qb_hashes(torrents):
     return result
 
 
+HR_LIST_CACHE_TTL = 10 * 60
+HR_MANIFEST_CACHE_TTL = 24 * 60 * 60
+HR_FETCH_ATTEMPTS = 3
+
+
+def fetch_hr_bytes(request, timeout):
+    """Fetch a site response with bounded retries; never invent a result."""
+
+    last_error = None
+    for attempt in range(HR_FETCH_ATTEMPTS):
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                return response.read()
+        except Exception as error:
+            last_error = error
+            if attempt + 1 < HR_FETCH_ATTEMPTS:
+                time.sleep(2 ** attempt)
+    raise last_error or RuntimeError("empty H&R fetch failure")
+
+
+def parse_btschool_hr_records(body):
+    records = {}
+    pattern = r'<a[^>]+href=["\']([^"\']*details\.php\?id=\d+[^"\']*)["\'][^>]*>(.*?)</a>'
+    for href, content in re.findall(pattern, body, re.I | re.S):
+        match = re.search(r"(?:\?|&)id=(\d+)", href)
+        title = html.unescape(re.sub(r"<[^>]+>", "", content)).strip()
+        if not match or match.group(1) == "181845" or not title:
+            continue
+        records[match.group(1)] = title
+    return records
+
+
+def cached_hr_manifest(value):
+    if not isinstance(value, dict):
+        return None
+    task_hash = str(value.get("hash") or "").lower()
+    if not re.fullmatch(r"[0-9a-f]{40}", task_hash):
+        return None
+    try:
+        fetched_at = int(value.get("fetchedAt"))
+        signature = tuple(
+            (str(item[0]), int(item[1]))
+            for item in (value.get("payloadSignature") or [])
+            if isinstance(item, (list, tuple)) and len(item) == 2
+        )
+        video_sizes = tuple(int(size) for size in (value.get("videoSizes") or []))
+    except (TypeError, ValueError):
+        return None
+    if fetched_at <= 0 or not signature:
+        return None
+    return {
+        "hash": task_hash,
+        "payloadSignature": signature,
+        "videoSizes": video_sizes,
+        "fetchedAt": fetched_at,
+    }
+
+
+def _hr_failure(error, hash_cache, source_cache, records=None, fetched_at=0):
+    message = f"{type(error).__name__}: {str(error)[:240]}"
+    return {
+        "available": False,
+        "stale": bool(records),
+        "sourceState": "stale" if records else "unavailable",
+        "error": message,
+        "activeCount": 0,
+        "activeHashes": set(),
+        "matchedHashes": set(),
+        "missingCount": 0,
+        "missingUncoveredCount": 0,
+        "candidateHashes": set(),
+        "hashCache": hash_cache,
+        "sourceCache": source_cache,
+        "sourceFetchedAt": fetched_at,
+        "missingRecords": [],
+    }
+
+
 def btschool_hr_records(torrents):
+    """Read BTSchool H&R with a short listing cache and manifest cache.
+
+    A transient site failure returns the last known records as stale data and
+    marks the source unavailable.  Callers then protect affected tasks rather
+    than turning the entire read-only snapshot into a 502.
+    """
+
     hash_cache = {
         str(torrent_id): str(task_hash).lower()
-        for torrent_id, task_hash in HR_HASH_CACHE.items()
+        for torrent_id, task_hash in (HR_HASH_CACHE or {}).items()
         if str(torrent_id).isdigit()
         and re.fullmatch(r"[0-9a-fA-F]{40}", str(task_hash))
     }
+    source_cache = HR_SOURCE_CACHE if isinstance(HR_SOURCE_CACHE, dict) else {}
+    sites_cache = source_cache.setdefault("sites", {})
+    manifests_cache = source_cache.setdefault("manifests", {})
+    site_key = "btschool.club"
+    site_cache = sites_cache.setdefault(site_key, {})
+    cached_records = {
+        str(record_id): str(title)
+        for record_id, title in (site_cache.get("records") or {}).items()
+        if str(record_id).isdigit() and str(title).strip()
+    }
+    try:
+        cached_fetched_at = int(site_cache.get("fetchedAt") or 0)
+    except (TypeError, ValueError):
+        cached_fetched_at = 0
+    now = int(time.time())
+    records = cached_records
+    listing_from_cache = bool(records and cached_fetched_at
+                              and now - cached_fetched_at <= HR_LIST_CACHE_TTL)
+    stale = False
+    source_error = None
     try:
         site_db = sqlite3.connect(f"file:{MOVIEPILOT_DB}?mode=ro", uri=True)
         row = site_db.execute(
             "select url,cookie,ua from site "
             "where domain=? and is_active=1 order by id desc limit 1",
-            ("btschool.club",),
+            (site_key,),
         ).fetchone()
         site_db.close()
         if not row:
-            return set(), False
+            return _hr_failure(
+                RuntimeError("BTSchool site is not configured"),
+                hash_cache,
+                source_cache,
+                records,
+                cached_fetched_at,
+            )
         base_url, cookie, user_agent = row
-        request = Request(
-            str(base_url).rstrip("/") + "/myhr.php",
-            headers={
-                "Cookie": str(cookie or ""),
-                "User-Agent": str(user_agent or "Mozilla/5.0"),
-            },
-        )
-        with urlopen(request, timeout=25) as response:
-            body = response.read().decode("utf-8", "ignore")
-        records = {}
-        pattern = r'<a[^>]+href=["\']([^"\']*details\.php\?id=\d+[^"\']*)["\'][^>]*>(.*?)</a>'
-        for href, content in re.findall(pattern, body, re.I | re.S):
-            match = re.search(r"(?:\?|&)id=(\d+)", href)
-            title = html.unescape(re.sub(r"<[^>]+>", "", content)).strip()
-            if not match or match.group(1) == "181845" or not title:
-                continue
-            records[match.group(1)] = title
-
         headers = {
             "Cookie": str(cookie or ""),
             "User-Agent": str(user_agent or "Mozilla/5.0"),
         }
+        if not listing_from_cache:
+            request = Request(
+                str(base_url).rstrip("/") + "/myhr.php",
+                headers=headers,
+            )
+            try:
+                body = fetch_hr_bytes(request, timeout=25).decode(
+                    "utf-8", "ignore"
+                )
+            except Exception as error:
+                if not records:
+                    raise
+                # Continue with the last known listing so known H&R hashes can
+                # still be displayed.  The source remains unavailable below,
+                # which keeps every affected private task protected.
+                stale = True
+                source_error = error
+            else:
+                records = parse_btschool_hr_records(body)
+                site_cache["records"] = records
+                site_cache["fetchedAt"] = now
+                cached_fetched_at = now
         complete_qb_hashes = verified_complete_qb_hashes(torrents)
 
         def official_record(item):
             torrent_id, title = item
+            cache_key = f"{site_key}:{torrent_id}"
+            manifest_entry = cached_hr_manifest(manifests_cache.get(cache_key))
             task_hash = hash_cache.get(torrent_id)
-            manifest = []
-            if not task_hash or task_hash not in complete_qb_hashes:
+            if manifest_entry and task_hash and task_hash != manifest_entry["hash"]:
+                raise ValueError("cached H&R infohash changed")
+            if manifest_entry:
+                task_hash = manifest_entry["hash"]
+                hash_cache[torrent_id] = task_hash
+            manifest_fresh = bool(
+                manifest_entry
+                and now - manifest_entry["fetchedAt"] <= HR_MANIFEST_CACHE_TTL
+            )
+            if not task_hash or (
+                task_hash not in complete_qb_hashes and not manifest_fresh
+            ):
                 request = Request(
                     str(base_url).rstrip("/")
                     + "/download.php?id="
                     + torrent_id,
                     headers=headers,
                 )
-                with urlopen(request, timeout=30) as response:
-                    payload = response.read()
-                official_hash = torrent_infohash(payload)
-                if task_hash and task_hash != official_hash:
-                    raise ValueError("cached H&R infohash changed")
-                task_hash = official_hash
-                hash_cache[torrent_id] = task_hash
-                manifest = torrent_payload_files(payload)
+                try:
+                    payload = fetch_hr_bytes(request, timeout=30)
+                    official_hash = torrent_infohash(payload)
+                    if task_hash and task_hash != official_hash:
+                        raise ValueError("cached H&R infohash changed")
+                    task_hash = official_hash
+                    hash_cache[torrent_id] = task_hash
+                    manifest = torrent_payload_files(payload)
+                    manifest_entry = {
+                        "hash": task_hash,
+                        "payloadSignature": [
+                            list(item) for item in payload_signature(manifest)
+                        ],
+                        "videoSizes": list(payload_video_sizes(manifest)),
+                        "fetchedAt": now,
+                    }
+                    manifests_cache[cache_key] = manifest_entry
+                    manifest_fresh = True
+                except Exception:
+                    if not manifest_entry:
+                        raise
+                    # An expired manifest is still safe as a protection hint,
+                    # but it can never make a task eligible for deletion while
+                    # the source is stale.
+                    manifest_fresh = False
+            if not task_hash:
+                raise ValueError("H&R record has no infohash")
             return {
                 "id": torrent_id,
                 "title": title,
                 "normalizedTitle": normalized_release(title),
                 "hash": task_hash,
-                "payloadSignature": payload_signature(manifest),
-                "videoSizes": payload_video_sizes(manifest),
+                "payloadSignature": (
+                    tuple(tuple(item) for item in (manifest_entry or {}).get("payloadSignature", []))
+                    if manifest_entry
+                    else ()
+                ),
+                "videoSizes": tuple((manifest_entry or {}).get("videoSizes", [])),
+                "stale": bool(manifest_entry and not manifest_fresh),
             }
 
-        with ThreadPoolExecutor(max_workers=6) as executor:
-            official_records = list(
-                executor.map(official_record, sorted(records.items()))
-            )
-        active_hashes = {
-            record["hash"]
-            for record in official_records
-        }
+        official_records = []
+        record_errors = []
+        # Keep the site within a small bounded request window.  The old six-way
+        # fan-out triggered tracker throttling and made one failed download
+        # discard the whole inventory.
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(official_record, item)
+                for item in sorted(records.items())
+            ]
+            for future in futures:
+                try:
+                    official_records.append(future.result())
+                except Exception as error:
+                    record_errors.append(error)
+        if record_errors:
+            stale = True
+            source_error = record_errors[0]
+        stale = stale or any(record.get("stale") for record in official_records)
+        active_hashes = {record["hash"] for record in official_records}
         matched_hashes = {
             record["hash"]
             for record in official_records
@@ -748,17 +914,27 @@ def btschool_hr_records(torrents):
             torrents,
             missing_records,
         )
+        available = not source_error and not stale
         return {
-            "available": True,
+            "available": available,
+            "stale": stale,
+            "sourceState": (
+                "fresh" if available else ("stale" if records else "partial")
+            ),
+            "error": (
+                f"{type(source_error).__name__}: {str(source_error)[:240]}"
+                if source_error
+                else ""
+            ),
             "activeCount": len(official_records),
             "activeHashes": active_hashes,
             "matchedHashes": matched_hashes,
             "missingCount": len(missing_records),
-            "missingUncoveredCount": (
-                len(missing_records) - len(covered_titles)
-            ),
+            "missingUncoveredCount": len(missing_records) - len(covered_titles),
             "candidateHashes": candidate_hashes,
             "hashCache": hash_cache,
+            "sourceCache": source_cache,
+            "sourceFetchedAt": cached_fetched_at,
             "missingRecords": [
                 {
                     "id": record["id"],
@@ -773,18 +949,13 @@ def btschool_hr_records(torrents):
             ],
         }
     except Exception as error:
-        return {
-            "available": False,
-            "error": f"{type(error).__name__}: {str(error)[:240]}",
-            "activeCount": 0,
-            "activeHashes": set(),
-            "matchedHashes": set(),
-            "missingCount": 0,
-            "missingUncoveredCount": 0,
-            "candidateHashes": set(),
-            "hashCache": hash_cache,
-            "missingRecords": [],
-        }
+        return _hr_failure(
+            error,
+            hash_cache,
+            source_cache,
+            records,
+            cached_fetched_at,
+        )
 
 
 def assign_hr_candidates(torrents, official_records):
@@ -820,6 +991,7 @@ def make_task(
     hr_candidate_hashes,
     hr_available,
     publication_hashes=frozenset(),
+    hr_unknown_sites=frozenset(),
 ):
     site = site_label(row)
     status, tone = task_status(row, publication_hashes)
@@ -829,10 +1001,11 @@ def make_task(
     recovery_candidate = (
         str(row.get("hash") or "").lower() in hr_candidate_hashes
     )
+    unsupported_private_site = bool(row.get("private")) and site in hr_unknown_sites
     hr = "H&R" in tags or "H＆R" in tags or site_hr
     hr_unknown = recovery_candidate or (
         site == "学校站" and not hr_available
-    )
+    ) or unsupported_private_site
     if hr:
         status, tone = "H&R 保护", "protected"
     elif hr_unknown:
@@ -1204,15 +1377,38 @@ for row, (
         qb_file_lists_cached += 1
 publication_hashes = load_publication_hashes()
 hr_status = btschool_hr_records(torrents)
-hr_available = hr_status["available"]
-if not hr_available:
-    raise RuntimeError(
-        "H&R source unavailable: "
-        + str(hr_status.get("error") or "unknown error")
-    )
-hr_hashes = hr_status["activeHashes"]
-hr_matched_hashes = hr_status["matchedHashes"]
-hr_candidate_hashes = hr_status["candidateHashes"]
+hr_available = bool(hr_status.get("available"))
+hr_hashes = set(hr_status.get("activeHashes") or ())
+hr_matched_hashes = set(hr_status.get("matchedHashes") or ())
+hr_candidate_hashes = set(hr_status.get("candidateHashes") or ())
+private_sites = {
+    site_label(row)
+    for row in torrents
+    if bool(row.get("private"))
+}
+# Only BTSchool currently has an authoritative adapter.  Other private sites
+# are deliberately represented as "待核 H&R" until their own official source
+# is verified; a site label or qB category is never treated as proof of safety.
+hr_unknown_sites = private_sites - {"学校站"}
+hr_sources = {
+    "学校站": {
+        "supported": True,
+        "available": hr_available,
+        "stale": bool(hr_status.get("stale")),
+        "state": hr_status.get("sourceState") or "unavailable",
+        "activeCount": int(hr_status.get("activeCount") or 0),
+        "error": str(hr_status.get("error") or ""),
+    }
+}
+for site in sorted(hr_unknown_sites):
+    hr_sources[site] = {
+        "supported": False,
+        "available": False,
+        "stale": False,
+        "state": "unsupported",
+        "activeCount": 0,
+        "error": "暂无该站官方 H&R 适配器，相关私有任务按待核保护。",
+    }
 group_tasks = defaultdict(list)
 unmatched_groups = {}
 unmatched_tasks = 0
@@ -1289,6 +1485,7 @@ for row in torrents:
             hr_candidate_hashes,
             hr_available,
             publication_hashes,
+            hr_unknown_sites,
         )
     )
 
@@ -1417,6 +1614,7 @@ for bundle in unmatched_groups.values():
                 hr_candidate_hashes,
                 hr_available,
                 publication_hashes,
+                hr_unknown_sites,
             )
         )
     hr = any(task["hr"] for task in tasks)
@@ -1510,6 +1708,16 @@ print(
                 "matchedQbTasks": sum(len(tasks) for tasks in group_tasks.values()),
                 "unmatchedQbTasks": unmatched_tasks,
                 "hrSourceAvailable": hr_available,
+                "hrSourceState": hr_status.get("sourceState") or "unavailable",
+                "hrSourceStale": bool(hr_status.get("stale")),
+                "hrSources": hr_sources,
+                "hrUnsupportedSites": sorted(hr_unknown_sites),
+                "hrUnknownPrivateTasks": sum(
+                    task["hr_unknown"]
+                    for tasks in group_tasks.values()
+                    for task in tasks
+                    if task["_private"]
+                ),
                 "hrActiveTitles": hr_status["activeCount"],
                 "hrMatchedQbTasks": len(hr_matched_hashes),
                 "hrMissingQbTasks": hr_status["missingCount"],
@@ -1523,6 +1731,7 @@ print(
                 ),
             },
             "_hrHashCache": hr_status["hashCache"],
+            "_hrSourceCache": hr_status["sourceCache"],
             "_hrMissingRecords": hr_status["missingRecords"],
             "_qbFileCache": next_qb_file_cache,
             "_unresolvedTransactionIds": unresolved_plan_ids,
@@ -1569,6 +1778,13 @@ def parse_args() -> argparse.Namespace:
         default=Path(__file__).resolve().parents[1]
         / ".runtime/hr-infohash-cache.json",
         help="Private cache of immutable BTSchool torrent id to infohash mappings.",
+    )
+    parser.add_argument(
+        "--hr-source-cache",
+        type=Path,
+        default=Path(__file__).resolve().parents[1]
+        / ".runtime/hr-source-cache.json",
+        help="Private cache of H&R listing and official torrent manifests.",
     )
     parser.add_argument(
         "--qb-file-cache",
@@ -1668,6 +1884,81 @@ def sanitize_qb_file_cache(value: object) -> dict[str, list[dict]]:
     return result
 
 
+def sanitize_hr_source_cache(value: object) -> dict:
+    """Keep only non-sensitive H&R cache data before sending it to the Pi."""
+
+    if not isinstance(value, dict):
+        return {"version": 1, "sites": {}, "manifests": {}}
+    result: dict = {"version": 1, "sites": {}, "manifests": {}}
+    sites = value.get("sites")
+    if isinstance(sites, dict):
+        for raw_site, raw_entry in list(sites.items())[:32]:
+            site = str(raw_site).strip().lower()
+            if not site or not isinstance(raw_entry, dict):
+                continue
+            try:
+                fetched_at = int(raw_entry.get("fetchedAt") or 0)
+            except (TypeError, ValueError):
+                fetched_at = 0
+            records: dict[str, str] = {}
+            raw_records = raw_entry.get("records")
+            if isinstance(raw_records, dict):
+                for raw_id, raw_title in list(raw_records.items())[:5000]:
+                    record_id = str(raw_id)
+                    title = str(raw_title or "").strip()
+                    if record_id.isdigit() and title and len(title) <= 512:
+                        records[record_id] = title
+            if records and fetched_at > 0:
+                result["sites"][site] = {
+                    "records": records,
+                    "fetchedAt": fetched_at,
+                }
+    manifests = value.get("manifests")
+    if isinstance(manifests, dict):
+        for raw_key, raw_entry in list(manifests.items())[:5000]:
+            key = str(raw_key)
+            if not key or not isinstance(raw_entry, dict):
+                continue
+            task_hash = str(raw_entry.get("hash") or "").lower()
+            try:
+                fetched_at = int(raw_entry.get("fetchedAt") or 0)
+            except (TypeError, ValueError):
+                fetched_at = 0
+            if (
+                not re.fullmatch(r"[0-9a-f]{40}", task_hash)
+                or fetched_at <= 0
+            ):
+                continue
+            signature = []
+            for item in raw_entry.get("payloadSignature") or []:
+                if not isinstance(item, (list, tuple)) or len(item) != 2:
+                    continue
+                name = str(item[0] or "")
+                try:
+                    size = int(item[1])
+                except (TypeError, ValueError):
+                    continue
+                if name and 0 <= size <= 2**63 - 1:
+                    signature.append([name[:512], size])
+            if not signature:
+                continue
+            video_sizes = []
+            for raw_size in raw_entry.get("videoSizes") or []:
+                try:
+                    size = int(raw_size)
+                except (TypeError, ValueError):
+                    continue
+                if size > 0:
+                    video_sizes.append(size)
+            result["manifests"][key] = {
+                "hash": task_hash,
+                "payloadSignature": signature,
+                "videoSizes": video_sizes,
+                "fetchedAt": fetched_at,
+            }
+    return result
+
+
 def main() -> int:
     args = parse_args()
     config = load_config(args.config)
@@ -1687,6 +1978,12 @@ def main() -> int:
                     for character in str(task_hash)
                 )
             }
+    except (OSError, json.JSONDecodeError):
+        pass
+    hr_source_cache = {"version": 1, "sites": {}, "manifests": {}}
+    try:
+        with args.hr_source_cache.open(encoding="utf-8") as handle:
+            hr_source_cache = sanitize_hr_source_cache(json.load(handle))
     except (OSError, json.JSONDecodeError):
         pass
     qb_file_cache = {}
@@ -1710,6 +2007,10 @@ def main() -> int:
     ).replace(
         "__HR_HASH_CACHE__",
         repr(hr_hash_cache),
+        1,
+    ).replace(
+        "__HR_SOURCE_CACHE__",
+        repr(hr_source_cache),
         1,
     ).replace(
         "__QB_FILE_CACHE__",
@@ -1743,6 +2044,7 @@ def main() -> int:
         raise RuntimeError(f"remote collector failed: {detail}")
     raw_payload = json.loads(result.stdout)
     raw_hr_hash_cache = raw_payload.pop("_hrHashCache", {})
+    raw_hr_source_cache = raw_payload.pop("_hrSourceCache", {})
     raw_hr_missing_records = raw_payload.pop("_hrMissingRecords", [])
     raw_qb_file_cache = raw_payload.pop("_qbFileCache", {})
     raw_unresolved_transaction_ids = raw_payload.pop(
@@ -1764,6 +2066,7 @@ def main() -> int:
         else {}
     )
     next_qb_file_cache = sanitize_qb_file_cache(raw_qb_file_cache)
+    next_hr_source_cache = sanitize_hr_source_cache(raw_hr_source_cache)
     hr_metadata_resources = make_hr_metadata_resources(
         raw_hr_missing_records
     )
@@ -1865,6 +2168,7 @@ def main() -> int:
     write_json_atomic(args.output, public_payload, 0o644)
     write_json_atomic(args.private_output, private_payload, 0o600)
     write_json_atomic(args.hr_cache, next_hr_hash_cache, 0o600)
+    write_json_atomic(args.hr_source_cache, next_hr_source_cache, 0o600)
     write_json_atomic(args.qb_file_cache, next_qb_file_cache, 0o600)
     write_json_atomic(args.metadata_cache, metadata_cache, 0o600)
     print(

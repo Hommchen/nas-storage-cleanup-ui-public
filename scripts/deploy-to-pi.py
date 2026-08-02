@@ -122,6 +122,7 @@ test ! -e {shlex.quote(str(release / ".deployment-complete"))}
     )
     cache_files = (
         "hr-infohash-cache.json",
+        "hr-source-cache.json",
         "qb-file-cache.json",
         "media-metadata-cache.json",
     )

@@ -18,10 +18,12 @@ scope = runpy.run_path(
 )
 REMOTE_COLLECTOR = scope["REMOTE_COLLECTOR"]
 sanitize_qb_file_cache = scope["sanitize_qb_file_cache"]
+sanitize_hr_source_cache = scope["sanitize_hr_source_cache"]
 HELPERS_SOURCE = REMOTE_COLLECTOR.split(
     'db = sqlite3.connect(f"file:{JELLYFIN_DB}?mode=ro", uri=True)',
     1,
 )[0].replace("__HR_HASH_CACHE__", "{}")
+HELPERS_SOURCE = HELPERS_SOURCE.replace("__HR_SOURCE_CACHE__", "{}")
 HELPERS_SOURCE = HELPERS_SOURCE.replace("__QB_FILE_CACHE__", "{}")
 helpers: dict[str, object] = {}
 exec(compile(HELPERS_SOURCE, "<collector-helpers>", "exec"), helpers)
@@ -31,6 +33,8 @@ class CollectorHelperTests(unittest.TestCase):
     def test_remote_collector_source_compiles(self):
         source = REMOTE_COLLECTOR.replace(
             "__HR_HASH_CACHE__", "{}"
+        ).replace(
+            "__HR_SOURCE_CACHE__", "{}"
         ).replace("__QB_FILE_CACHE__", "{}")
 
         compile(source, "<remote-collector>", "exec")
@@ -256,6 +260,77 @@ class CollectorHelperTests(unittest.TestCase):
         self.assertEqual(
             helpers["verified_complete_qb_hashes"](torrents),
             {"a" * 40},
+        )
+
+    def test_non_school_private_sites_are_pending_until_an_adapter_exists(self):
+        row = {
+            "hash": "d" * 40,
+            "name": "Fixture.2026.1080p",
+            "category": "pt-crabpt",
+            "tags": "蟹黄堡",
+            "private": True,
+            "progress": 1,
+        }
+        task = helpers["make_task"](
+            row,
+            "整部",
+            set(),
+            set(),
+            True,
+            frozenset(),
+            {"蟹黄堡"},
+        )
+
+        self.assertFalse(task["hr"])
+        self.assertTrue(task["hr_unknown"])
+        self.assertEqual(task["status"], "待核 H&R")
+        self.assertEqual(task["tone"], "protected")
+
+    def test_hr_source_cache_discards_credentials_and_invalid_manifests(self):
+        cache = sanitize_hr_source_cache(
+            {
+                "sites": {
+                    "btschool.club": {
+                        "records": {"123": "Fixture", "bad": "ignored"},
+                        "fetchedAt": 1700000000,
+                        "cookie": "secret",
+                    }
+                },
+                "manifests": {
+                    "btschool.club:123": {
+                        "hash": "a" * 40,
+                        "payloadSignature": [["Fixture.mkv", 14]],
+                        "videoSizes": [14],
+                        "fetchedAt": 1700000000,
+                    },
+                    "btschool.club:bad": {
+                        "hash": "not-a-hash",
+                        "payloadSignature": [["bad.mkv", 1]],
+                        "fetchedAt": 1700000000,
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(
+            cache,
+            {
+                "version": 1,
+                "sites": {
+                    "btschool.club": {
+                        "records": {"123": "Fixture"},
+                        "fetchedAt": 1700000000,
+                    }
+                },
+                "manifests": {
+                    "btschool.club:123": {
+                        "hash": "a" * 40,
+                        "payloadSignature": [["Fixture.mkv", 14]],
+                        "videoSizes": [14],
+                        "fetchedAt": 1700000000,
+                    }
+                },
+            },
         )
 
     def test_qb_file_cache_rejects_invalid_or_empty_entries(self):
