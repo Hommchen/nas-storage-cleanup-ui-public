@@ -55,9 +55,38 @@ class MoviePilotPluginTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["StorageCleanup"]["system_version"], ">=2.14.6")
-        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.7")
+        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.15")
+        self.assertIn("自动发现 MoviePilot", manifest["StorageCleanup"]["description"])
+        self.assertIn(
+            "一键清理全链路耦合",
+            (PLUGIN_ROOT / "__init__.py").read_text(encoding="utf-8"),
+        )
+        config_page = (PLUGIN_ROOT / "src/components/Config.vue").read_text(
+            encoding="utf-8",
+        )
+        self.assertNotIn("SSH 目标", config_page)
+        self.assertNotIn("ssh_host", config_page)
+        self.assertNotIn("插件不会 SSH 登录 NAS", config_page)
+        self.assertNotIn("首次使用按这 3 步", config_page)
+        self.assertIn("一般无需填写，先点“自动识别”；识别失败再用手动配置。", config_page)
+        self.assertIn("手动配置（自动识别失败时使用）", config_page)
+        self.assertIn("打开手动配置", config_page)
+        self.assertIn("应用识别结果并验证", config_page)
+        self.assertIn("候选不唯一时不会自动猜", config_page)
+        self.assertIn("候选：{{ (item.candidates || []).join('；') }}", config_page)
+        self.assertIn("!discovery.value?.ready", config_page)
+        self.assertIn(":disabled=\"saving || !discovery.ready\"", config_page)
+        app_page = (PLUGIN_ROOT / "src/components/AppPage.vue").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn("padding: 28px 28px 28px calc(28px + 260px)", app_page)
+        self.assertIn(".modal-backdrop { padding: 16px; }", app_page)
+        self.assertIn(
+            'self._route("/discover"',
+            (PLUGIN_ROOT / "__init__.py").read_text(encoding="utf-8"),
+        )
         self.assertTrue(
-            (PLUGIN_ROOT / "dist/v1.0.7/assets/remoteEntry.js").is_file()
+            (PLUGIN_ROOT / "dist/v1.0.15/assets/remoteEntry.js").is_file()
         )
 
     def test_bridge_uses_token_only_in_internal_headers(self):
@@ -118,8 +147,15 @@ class MoviePilotPluginTests(unittest.TestCase):
             'v-if="planOpen"',
             'v-if="gapOpen"',
             'v-if="recoveryOpen"',
+            'v-if="settingsOpen"',
+            'class="modal settings-modal"',
+            '清理台配置',
         ):
             self.assertIn(marker, teleported)
+        self.assertIn("import Config from './Config.vue'", page)
+        self.assertIn('aria-label="打开存储清理设置"', page)
+        self.assertNotIn("{ id: 'brush'", source)
+        self.assertNotIn("if (filter === 'brush')", source)
         self.assertIn("position: fixed;", page)
         self.assertIn("inset: 0;", page)
         self.assertIn("place-items: center;", page)
