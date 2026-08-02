@@ -366,6 +366,57 @@ class ActionPlannerTests(unittest.TestCase):
             {item["code"] for item in source_unknown["blocks"]},
         )
 
+    def test_per_site_hr_failure_does_not_block_unrelated_public_bt_resource(self):
+        source = inventory(resource("res_a", tasks=[task()]))
+        source["stats"]["hrSourceAvailable"] = False
+        source["stats"]["hrSources"] = {
+            "学校站": {
+                "supported": True,
+                "available": False,
+                "state": "stale",
+            }
+        }
+
+        plan = build_plan(
+            source,
+            snapshot_id="snap_test",
+            resource_ids=["res_a"],
+            mode="delete",
+            now=NOW,
+        )
+
+        self.assertTrue(plan["canExecute"])
+        self.assertNotIn(
+            "hr_source_unavailable",
+            {item["code"] for item in plan["blocks"]},
+        )
+
+    def test_per_site_hr_failure_blocks_selected_private_resource(self):
+        private_task = task(private=True)
+        source = inventory(resource("res_a", tasks=[private_task]))
+        source["stats"]["hrSourceAvailable"] = False
+        source["stats"]["hrSources"] = {
+            "学校站": {
+                "supported": True,
+                "available": False,
+                "state": "stale",
+            }
+        }
+
+        plan = build_plan(
+            source,
+            snapshot_id="snap_test",
+            resource_ids=["res_a"],
+            mode="delete",
+            now=NOW,
+        )
+
+        self.assertFalse(plan["canExecute"])
+        self.assertIn(
+            "hr_source_unavailable",
+            {item["code"] for item in plan["blocks"]},
+        )
+
     def test_unassigned_hr_gap_warns_but_does_not_block_unrelated_delete(self):
         source = inventory(resource("res_a"))
         source["stats"]["hrMissingUnassigned"] = 1

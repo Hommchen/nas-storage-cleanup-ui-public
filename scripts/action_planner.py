@@ -131,8 +131,15 @@ def build_plan(
             "unresolved_transaction",
             "存在未完成的清理事务，已锁定全部操作，请先恢复或核对。",
         )
-    if mode == "delete" and not inventory_stats.get(
-        "hrSourceAvailable", False
+    # New snapshots carry per-site H&R state.  Keep the legacy global block
+    # only for old inventories without that detail; with per-site state we can
+    # still plan an unrelated public-BT resource while protecting affected
+    # private-site tasks below.
+    has_hr_sources = isinstance(inventory_stats.get("hrSources"), dict)
+    if (
+        mode == "delete"
+        and not has_hr_sources
+        and not inventory_stats.get("hrSourceAvailable", False)
     ):
         _add_reason(
             blocks,
@@ -171,6 +178,17 @@ def build_plan(
         resource_warnings: list[dict[str, str]] = []
         tasks = resource.get("qbTasks") or []
         moviepilot_indexes = resource.get("moviepilotIndexes") or []
+        if (
+            mode == "delete"
+            and has_hr_sources
+            and not inventory_stats.get("hrSourceAvailable", False)
+            and any(task.get("private") for task in tasks)
+        ):
+            _add_reason(
+                resource_blocks,
+                "hr_source_unavailable",
+                "无法核实受影响私有站的 H&R，禁止完整删除该资源。",
+            )
         if resource.get("metadataVerified") is not True:
             _add_reason(
                 resource_blocks,
