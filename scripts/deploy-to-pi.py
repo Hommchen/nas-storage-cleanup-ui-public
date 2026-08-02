@@ -69,6 +69,17 @@ def main() -> int:
     PI_HOST = args.pi_host
     PI_BASE = args.pi_base
     service_user = pi_user()
+    plugin_manifest = json.loads(
+        (PROJECT_ROOT / "moviepilot-plugin/package.v2.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    plugin_version = str(plugin_manifest["StorageCleanup"]["version"])
+    plugin_remote_path = f"dist/v{plugin_version}/assets/remoteEntry.js"
+    if not plugin_version or any(
+        character not in "0123456789." for character in plugin_version
+    ):
+        raise ValueError("StorageCleanup 插件版本号无效。")
     release_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     release = PI_BASE / "releases" / release_id
     shared_runtime = PI_BASE / "shared/runtime"
@@ -136,6 +147,37 @@ rm -rf "$release/.runtime" "$release/public/data"
 ln -s {shlex.quote(str(shared_runtime))} "$release/.runtime"
 ln -s {shlex.quote(str(shared_public))} "$release/public/data"
 cd "$release"
+/usr/bin/python3 - <<'PY'
+from pathlib import Path
+
+from scripts.configuration import (
+    discover_config,
+    load_config,
+    prepare_runtime_dirs,
+    probe_config,
+    write_config,
+)
+
+base = Path({str(PI_BASE)!r})
+config_path = Path({str(shared_config)!r})
+current = load_config(config_path) if config_path.is_file() else None
+current_probe = probe_config(current) if current is not None else None
+if current_probe and current_probe["ok"]:
+    print("existing cleanup configuration passed read-only probe")
+else:
+    proposal = discover_config(current, project_root=base)
+    prepare_runtime_dirs(proposal["config"], base)
+    final_probe = probe_config(proposal["config"])
+    if not final_probe["ok"]:
+        missing = ", ".join(final_probe["missing"])
+        problems = "; ".join(final_probe["problems"])
+        raise SystemExit(
+            "automatic NAS discovery is incomplete; "
+            f"missing={{missing or 'none'}}; problems={{problems or 'none'}}"
+        )
+    write_config(config_path, proposal["config"])
+    print("automatic NAS discovery wrote the validated cleanup configuration")
+PY
 /usr/bin/npm ci --no-audit --no-fund --registry=https://registry.npmjs.org --replace-registry-host=never
 /usr/bin/python3 -m unittest discover -s tests -p 'test_*.py'
 /usr/bin/npm run lint
@@ -145,7 +187,7 @@ cd "$release/moviepilot-plugin/plugins.v2/storagecleanup"
 /usr/bin/npm ci --no-audit --no-fund --registry=https://registry.npmjs.org --replace-registry-host=never
 /usr/bin/npm run check
 /usr/bin/npm run build
-test -s dist/v1.0.7/assets/remoteEntry.js
+test -s {shlex.quote(plugin_remote_path)}
 cd "$release"
 /usr/bin/python3 scripts/collect-readonly-snapshot.py --local-nas --config {shlex.quote(str(shared_config))}
 /usr/bin/python3 - <<'PY'
@@ -282,7 +324,7 @@ remote = next(
 )
 assert remote
 assert str(remote.get("url") or "").endswith(
-    "/dist/v1.0.7/assets/remoteEntry.js"
+    "/{plugin_remote_path}"
 )
 print(json.dumps({{
     "ok": True,
