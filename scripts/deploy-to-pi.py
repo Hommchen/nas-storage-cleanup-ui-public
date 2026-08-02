@@ -70,7 +70,7 @@ def main() -> int:
     PI_BASE = args.pi_base
     service_user = pi_user()
     plugin_manifest = json.loads(
-        (PROJECT_ROOT / "moviepilot-plugin/package.v2.json").read_text(
+        (PROJECT_ROOT / "package.v2.json").read_text(
             encoding="utf-8"
         )
     )
@@ -152,7 +152,7 @@ cd "$release"
 /usr/bin/npm run lint
 /usr/bin/npm run typecheck
 /usr/bin/npm run build
-cd "$release/moviepilot-plugin/plugins.v2/storagecleanup"
+cd "$release/plugins.v2/storagecleanup"
 /usr/bin/npm ci --no-audit --no-fund --registry=https://registry.npmjs.org --replace-registry-host=never
 /usr/bin/npm run check
 /usr/bin/npm run build
@@ -229,7 +229,7 @@ from app.helper.plugin import PluginHelper
 from app.schemas.types import SystemConfigKey
 
 plugin_id = "StorageCleanup"
-repo_path = Path({str(PI_BASE / "current/moviepilot-plugin")!r})
+repo_path = Path({str(PI_BASE / "current")!r})
 if not (repo_path / "package.v2.json").is_file():
     raise SystemExit("MoviePilot local plugin manifest is missing")
 

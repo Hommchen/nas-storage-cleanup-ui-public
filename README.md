@@ -25,7 +25,7 @@
 /opt/homebrew/bin/python3.12 scripts/deploy-to-pi.py --pi-host nas-user@nas-host --pi-base /srv/storage-cleanup-ui
 ```
 
-部署器先在独立版本目录安装、测试、构建两套前端并采集真实快照，通过后才原子切换 `current`，旧版本不会被覆盖。随后从 `moviepilot-plugin/package.v2.json` 安装或更新本地私有插件 `StorageCleanup`，重载 MoviePilot，并从正在运行的 MoviePilot HTTP 接口回读联邦入口和容器桥接。Pi 上控制、前端和局域网网关三个 systemd 服务均随开机启动；控制服务带确认门禁执行能力，仍须先生成五分钟安全预演、确认私站风险，然后在页面上连续点击两次确认。Mac 不运行任何配套服务。
+部署器先在独立版本目录安装、测试、构建两套前端并采集真实快照，通过后才原子切换 `current`，旧版本不会被覆盖。随后从 `package.v2.json` 安装或更新本地私有插件 `StorageCleanup`，重载 MoviePilot，并从正在运行的 MoviePilot HTTP 接口回读联邦入口和容器桥接。Pi 上控制、前端和局域网网关三个 systemd 服务均随开机启动；控制服务带确认门禁执行能力，仍须先生成五分钟安全预演、确认私站风险，然后在页面上连续点击两次确认。Mac 不运行任何配套服务。
 
 ## 本机开发
 

@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_ROOT = (
-    PROJECT_ROOT / "moviepilot-plugin/plugins.v2/storagecleanup"
+    PROJECT_ROOT / "plugins.v2/storagecleanup"
 )
 
 
@@ -51,7 +51,7 @@ class MoviePilotPluginTests(unittest.TestCase):
     def test_manifest_and_federation_entry_are_present(self):
         manifest = json.loads(
             (
-                PROJECT_ROOT / "moviepilot-plugin/package.v2.json"
+                PROJECT_ROOT / "package.v2.json"
             ).read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["StorageCleanup"]["system_version"], ">=2.14.6")
