@@ -467,6 +467,7 @@ class MediaMetadataTests(unittest.TestCase):
 
         self.assertTrue(resources[0]["protected"])
         self.assertTrue(resources[0]["hrPending"])
+        self.assertEqual(resources[0]["lockReason"], "H&R 保护")
         self.assertEqual(
             resources[0]["impactTitle"],
             "学校站 H&R 下载未完成",
