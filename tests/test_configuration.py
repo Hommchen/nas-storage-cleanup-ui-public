@@ -69,6 +69,44 @@ class ConfigurationTests(unittest.TestCase):
             self.assertEqual(result["missing"], [])
             self.assertEqual(before, after)
 
+    def test_probe_allows_idle_quarantine_root_to_be_created_lazily(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            volume = root / "volume"
+            allowed = volume / "downloads"
+            qb_backup = volume / "qb-backup"
+            execution_backup = volume / "execution-backup"
+            for directory in (allowed, qb_backup, execution_backup):
+                directory.mkdir(parents=True)
+            jellyfin_db = root / "jellyfin.db"
+            moviepilot_db = root / "moviepilot.db"
+            jellyfin_db.write_text("", encoding="utf-8")
+            moviepilot_db.write_text("", encoding="utf-8")
+            quarantine = volume / ".quarantine"
+            config = default_config()
+            config.update(
+                {
+                    "jellyfin_db": str(jellyfin_db),
+                    "moviepilot_db": str(moviepilot_db),
+                    "qb_backup": str(qb_backup),
+                    "execution_backup": str(execution_backup),
+                    "allowed_roots": [str(allowed)],
+                    "quarantine_roots": {str(volume): str(quarantine)},
+                }
+            )
+
+            result = probe_config(config)
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["missing"], [])
+            quarantine_entry = next(
+                entry for entry in result["entries"]
+                if entry["kind"] == "quarantine_root"
+            )
+            self.assertFalse(quarantine_entry["exists"])
+            self.assertTrue(quarantine_entry["missingAllowed"])
+            self.assertFalse(quarantine.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

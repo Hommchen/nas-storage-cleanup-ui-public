@@ -210,8 +210,9 @@ def probe_config(config: dict[str, Any]) -> dict[str, Any]:
     normalized = normalize_config(config)
     entries: list[dict[str, Any]] = []
     problems: list[str] = []
+    missing: list[str] = []
 
-    def inspect(value: str, kind: str) -> None:
+    def inspect(value: str, kind: str, *, missing_allowed: bool = False) -> None:
         path = Path(value)
         try:
             stat_result = path.lstat()
@@ -230,7 +231,16 @@ def probe_config(config: dict[str, Any]) -> dict[str, Any]:
             if is_symlink:
                 problems.append(f"{value} 是符号链接，不能作为安全边界。")
         except FileNotFoundError:
-            entries.append({"path": value, "kind": kind, "exists": False})
+            entries.append(
+                {
+                    "path": value,
+                    "kind": kind,
+                    "exists": False,
+                    "missingAllowed": missing_allowed,
+                }
+            )
+            if not missing_allowed:
+                missing.append(value)
         except OSError as exc:
             entries.append({"path": value, "kind": kind, "exists": False, "error": str(exc)})
             problems.append(f"无法读取 {value}：{exc}")
@@ -241,7 +251,11 @@ def probe_config(config: dict[str, Any]) -> dict[str, Any]:
         inspect(value, "allowed_root")
     for volume, value in normalized["quarantine_roots"].items():
         inspect(volume, "quarantine_volume")
-        inspect(value, "quarantine_root")
+        # Execution creates the configured quarantine root just before it
+        # stages the first file and removes the empty root after commit or
+        # rollback. Its absence is therefore a normal idle state, provided
+        # the root is the direct child of an existing configured volume.
+        inspect(value, "quarantine_root", missing_allowed=True)
 
     for root in normalized["allowed_roots"]:
         path = Path(root)
@@ -268,8 +282,13 @@ def probe_config(config: dict[str, Any]) -> dict[str, Any]:
                     problems.append(f"隔离目录必须与卷位于同一文件系统：{quarantine}")
             except OSError as exc:
                 problems.append(f"无法核对文件系统：{exc}")
+        if not quarantine_path.exists() and volume_path.exists():
+            if quarantine_path.parent != volume_path:
+                problems.append(
+                    "缺失的隔离目录必须是已配置卷根目录的直接子目录："
+                    f"{quarantine}"
+                )
 
-    missing = [entry["path"] for entry in entries if not entry.get("exists")]
     return {
         "ok": not problems and not missing,
         "structurallyValid": True,
