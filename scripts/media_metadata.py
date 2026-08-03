@@ -29,6 +29,9 @@ MANUAL_IDENTITY_RE = re.compile(
 SEASON_RANGE_RE = re.compile(
     r"(?i)S(\d{1,2})(?:\s*[-–—]\s*S?(\d{1,2}))?"
 )
+DOWNLOAD_STATES = frozenset(
+    {"downloading", "forceddl", "stalleddl", "metadl", "checkingdl"}
+)
 
 
 def has_cjk(value: object) -> bool:
@@ -129,6 +132,30 @@ def bilingual_name_verified(item: dict[str, Any]) -> bool:
     """A cleanup row is identifiable only when both language labels are real."""
 
     return not needs_bilingual_name(item)
+
+
+def _task_is_unfinished(task: dict[str, Any]) -> bool:
+    try:
+        return float(task.get("progress") or 0) < 1
+    except (TypeError, ValueError):
+        return True
+
+
+def _task_display_status(task: dict[str, Any]) -> tuple[str, str]:
+    """Keep the public task label aligned with qB's download/upload state."""
+
+    state = str(task.get("state") or "").casefold()
+    if task.get("selfPublish"):
+        return "自发布", "warning"
+    if task.get("hr"):
+        return "H&R 保护", "protected"
+    if task.get("hrUnknown"):
+        return "H&R 待核", "protected"
+    if state in DOWNLOAD_STATES or _task_is_unfinished(task):
+        return "下载中", "protected"
+    if state.startswith("stopped") or state == "pausedup":
+        return "已停止", "normal"
+    return "做种中", "normal"
 
 
 def make_hr_metadata_resources(
@@ -1253,21 +1280,30 @@ def _merge_group(
         any(bool(item.get("protected")) for item in items)
         or not name_verified
     )
+    unfinished = any(_task_is_unfinished(task) for task in qb_tasks)
+    task_hr_protected = any(
+        bool(task.get("hr")) or bool(task.get("hrUnknown"))
+        for task in qb_tasks
+    )
+    lock_reasons: list[str] = []
+    if identity_conflict:
+        lock_reasons.append("媒体身份冲突")
+    elif not name_verified:
+        lock_reasons.append("名称身份待核")
+    if unfinished:
+        lock_reasons.append("关联任务未完成")
+    if hr or hr_pending or task_hr_protected:
+        lock_reasons.append("H&R 保护")
+    if protected and not lock_reasons:
+        lock_reasons.append("安全状态待核")
+    lock_reason = "；".join(lock_reasons)
     private["metadataVerified"] = name_verified
     seed_task_groups: dict[
         tuple[str, str, str, str],
         dict[str, Any],
     ] = {}
     for task in qb_tasks:
-        state = str(task.get("state") or "").casefold()
-        if task.get("selfPublish"):
-            status, tone = "自发布", "warning"
-        elif task.get("hr"):
-            status, tone = "H&R 保护", "protected"
-        elif state.startswith("stopped"):
-            status, tone = "已停止", "normal"
-        else:
-            status, tone = "做种中", "normal"
+        status, tone = _task_display_status(task)
         seed_task = {
             "site": str(task.get("site") or "未知站点"),
             "scope": str(task.get("scope") or "整部"),
@@ -1356,6 +1392,7 @@ def _merge_group(
         "brush": brush,
         "metadataVerified": name_verified,
         "protected": protected,
+        "lockReason": lock_reason,
         "qbSummary": f"{len(qb_tasks)} 个 qB 任务" if qb_tasks else "无 qB 任务",
         "siteSummary": " · ".join(sites) if sites else "媒体库",
         "librarySummary": library_summary,

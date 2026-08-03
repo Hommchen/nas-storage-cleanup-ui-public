@@ -9,6 +9,7 @@ import unittest
 
 from scripts.media_metadata import (
     _metadata_query,
+    _task_display_status,
     _validated_result,
     apply_metadata_overrides,
     annotate_hr_missing_resources,
@@ -122,6 +123,79 @@ def raw_resource(
 
 
 class MediaMetadataTests(unittest.TestCase):
+    def test_task_display_status_distinguishes_download_from_seeding(self):
+        self.assertEqual(
+            _task_display_status({"state": "stalledDL", "progress": 0.67}),
+            ("下载中", "protected"),
+        )
+        self.assertEqual(
+            _task_display_status({"state": "downloading", "progress": 0.2}),
+            ("下载中", "protected"),
+        )
+        self.assertEqual(
+            _task_display_status({"state": "stalledUP", "progress": 1.0}),
+            ("做种中", "normal"),
+        )
+
+    def test_incomplete_task_exposes_download_label_and_lock_reason(self):
+        private = private_record(
+            identity="movie:tmdb:123456",
+            task_hash="a" * 40,
+            path="/allowed/incomplete.mkv",
+            inode=123,
+        )
+        private["qbTasks"][0].update(state="stalledDL", progress=0.67)
+        resource = raw_resource(
+            resource_id="res_incomplete",
+            title="示例电影",
+            english="Example Movie",
+            edition="电影",
+            media_type="电影",
+            private=private,
+            library=True,
+        )
+        resource["protected"] = True
+
+        merged, _ = enrich_and_merge_resources([resource], {})
+
+        self.assertTrue(merged[0]["protected"])
+        self.assertEqual(merged[0]["lockReason"], "关联任务未完成")
+        self.assertEqual(
+            merged[0]["seedTasks"],
+            [
+                {
+                    "site": "学校站",
+                    "scope": "S01",
+                    "status": "下载中",
+                    "tone": "protected",
+                    "count": 1,
+                }
+            ],
+        )
+
+    def test_completed_seeding_task_remains_selectable(self):
+        resource = raw_resource(
+            resource_id="res_seed",
+            title="示例电影",
+            english="Example Movie",
+            edition="电影",
+            media_type="电影",
+            private=private_record(
+                identity="movie:tmdb:123456",
+                task_hash="b" * 40,
+                path="/allowed/seed.mkv",
+                inode=124,
+            ),
+            library=True,
+        )
+
+        merged, _ = enrich_and_merge_resources([resource], {})
+
+        self.assertFalse(merged[0]["protected"])
+        self.assertEqual(merged[0]["lockReason"], "")
+        self.assertEqual(merged[0]["seedTasks"][0]["status"], "做种中")
+        self.assertEqual(merged[0]["seedTasks"][0]["tone"], "normal")
+
     def test_anne_happy_episode_overrides_are_tv_identity(self):
         path = Path(__file__).resolve().parents[1] / "db" / "media-name-overrides.json"
         data = json.loads(path.read_text(encoding="utf-8"))

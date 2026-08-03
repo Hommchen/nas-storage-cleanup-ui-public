@@ -640,6 +640,7 @@ onUnmounted(stopRefreshTimer)
           data-label="完整删除影响"
         >
           <strong>{{ item.impactTitle }}</strong>
+          <span v-if="item.protected && item.lockReason">锁定原因：{{ item.lockReason }}</span>
           <span>{{ item.impactDetail }}</span>
         </div>
       </article>

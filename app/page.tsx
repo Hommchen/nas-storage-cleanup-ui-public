@@ -53,6 +53,7 @@ type Resource = {
   seedTasks?: SeedTask[] | null;
   impactTitle: string;
   impactDetail: string;
+  lockReason?: string;
 };
 
 type Snapshot = {
@@ -1276,6 +1277,9 @@ export default function Home() {
                       className={`impact-cell ${selectionBlocked ? "danger" : ""}`}
                     >
                       <strong>{item.impactTitle}</strong>
+                      {selectionBlocked && item.lockReason ? (
+                        <span>锁定原因：{item.lockReason}</span>
+                      ) : null}
                       <span>{item.impactDetail}</span>
                     </div>
                   </div>
