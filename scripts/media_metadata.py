@@ -317,6 +317,13 @@ def annotate_hr_missing_resources(
             record["linkedResourceTitle"] = str(linked.get("title") or "")
             linked["hrPending"] = True
             linked["protected"] = True
+            existing_lock_reason = str(linked.get("lockReason") or "")
+            lock_reason_parts = [
+                part for part in existing_lock_reason.split("；") if part
+            ]
+            if "H&R 保护" not in lock_reason_parts:
+                lock_reason_parts.append("H&R 保护")
+            linked["lockReason"] = "；".join(lock_reason_parts)
             if record["qbTaskPresent"]:
                 linked["impactTitle"] = "学校站 H&R 下载未完成"
                 linked["impactDetail"] = (
