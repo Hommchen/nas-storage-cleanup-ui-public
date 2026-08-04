@@ -117,19 +117,32 @@ def _metadata_query(item: dict[str, Any]) -> str:
 
 
 def needs_bilingual_name(item: dict[str, Any]) -> bool:
+    """Return whether the public title is still too weak to identify.
+
+    A clear Chinese library title is already useful for human review even
+    when Jellyfin/MoviePilot did not provide a separate English/original
+    title. Requiring two languages here incorrectly marked rows such as
+    ``X战警`` as unresolved. qB-only rows still need a separate Latin title
+    unless their metadata resolver supplied one, because a Chinese release
+    label can contain quality or uploader text rather than a media identity.
+    Identity conflicts are handled independently by ``_merge_group``.
+    """
+
     title = _clean_text(item.get("title"), maximum=300)
     english = _clean_text(item.get("englishTitle"), maximum=300)
     return (
         not has_cjk(title)
-        or not has_latin(english)
-        or title == english
         or "待识别" in title
         or "待核" in title
+        or (
+            not bool(item.get("library"))
+            and (title == english or not has_latin(english))
+        )
     )
 
 
 def bilingual_name_verified(item: dict[str, Any]) -> bool:
-    """A cleanup row is identifiable only when both language labels are real."""
+    """A cleanup row is identifiable when its title is sufficiently clear."""
 
     return not needs_bilingual_name(item)
 
@@ -1281,6 +1294,7 @@ def _merge_group(
         {
             "title": title,
             "englishTitle": english_title,
+            "library": bool(library_items),
         }
     ) and not identity_conflict and not hash_name_redacted
     protected = (

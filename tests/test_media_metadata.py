@@ -196,6 +196,51 @@ class MediaMetadataTests(unittest.TestCase):
         self.assertEqual(merged[0]["seedTasks"][0]["status"], "做种中")
         self.assertEqual(merged[0]["seedTasks"][0]["tone"], "normal")
 
+    def test_clear_chinese_title_does_not_require_duplicate_english_name(self):
+        resource = raw_resource(
+            resource_id="res_xmen",
+            title="X战警：逆转未来",
+            english="X战警：逆转未来",
+            edition="电影",
+            media_type="电影",
+            library=True,
+            year="2014",
+            private=private_record(
+                identity="movie:path:xmen",
+                task_hash="x" * 40,
+                path="/allowed/xmen.mkv",
+                inode=125,
+            ),
+        )
+
+        merged, stats = enrich_and_merge_resources([resource], {})
+
+        self.assertTrue(merged[0]["metadataVerified"])
+        self.assertFalse(merged[0]["protected"])
+        self.assertEqual(merged[0]["lockReason"], "")
+        self.assertEqual(stats["metadataUnverifiedResources"], 0)
+
+    def test_qb_only_chinese_release_label_stays_unverified_without_english_name(self):
+        resource = raw_resource(
+            resource_id="res_qb_chinese_release",
+            title="中文片名 1080p",
+            english="中文片名 1080p",
+            edition="下载区资源 · 未入库",
+            media_type="电影",
+            library=False,
+            private=private_record(
+                identity="qb:chinese-release",
+                task_hash="y" * 40,
+                path="/allowed/chinese-release.mkv",
+                inode=126,
+            ),
+        )
+
+        merged, _ = enrich_and_merge_resources([resource], {})
+
+        self.assertFalse(merged[0]["metadataVerified"])
+        self.assertTrue(merged[0]["protected"])
+
     def test_anne_happy_episode_overrides_are_tv_identity(self):
         path = Path(__file__).resolve().parents[1] / "db" / "media-name-overrides.json"
         data = json.loads(path.read_text(encoding="utf-8"))

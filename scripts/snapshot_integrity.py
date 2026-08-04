@@ -37,6 +37,20 @@ def _has_latin(value: object) -> bool:
     return bool(re.search(r"[A-Za-z]", str(value or "")))
 
 
+def _has_verified_public_name(item: dict[str, Any]) -> bool:
+    """Mirror the metadata collector's safe public-name rule."""
+
+    title = str(item.get("title") or "").strip()
+    english = str(item.get("englishTitle") or "").strip()
+    if not _has_cjk(title) or "待识别" in title or "待核" in title:
+        return False
+    if not item.get("library") and (
+        title == english or not _has_latin(english)
+    ):
+        return False
+    return True
+
+
 def _public_value_is_sanitized(value: object) -> bool:
     if isinstance(value, dict):
         return all(
@@ -125,11 +139,8 @@ def validate_snapshot_pair(
             unverified += 1
             if item.get("protected") is not True:
                 raise ValueError("unverified metadata is not locked")
-        elif (
-            not _has_cjk(item.get("title"))
-            or not _has_latin(item.get("englishTitle"))
-        ):
-            raise ValueError("verified metadata lacks bilingual names")
+        elif not _has_verified_public_name(item):
+            raise ValueError("verified metadata lacks a clear public name")
         if item.get("seedTasks") is not None and not isinstance(
             item.get("seedTasks"),
             list,
