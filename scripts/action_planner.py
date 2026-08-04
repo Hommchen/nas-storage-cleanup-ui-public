@@ -353,14 +353,14 @@ def build_plan(
                     "没有可复核的实际文件，禁止完整删除。",
                 )
             if any(
-                not path_is_allowed(
-                    str(item.get("path") or ""),
-                    allowed_roots=allowed_roots,
+                (
+                    item.get("allowed")
+                    and not path_is_allowed(
+                        str(item.get("path") or ""),
+                        allowed_roots=allowed_roots,
+                    )
                 )
-                or (
-                    not item.get("allowed")
-                    and not item.get("legacyQuarantine")
-                )
+                or (not item.get("allowed") and not item.get("legacyQuarantine"))
                 for item in existing_files
             ):
                 _add_reason(

@@ -280,6 +280,54 @@ class ActionPlannerTests(unittest.TestCase):
             {item["code"] for item in plan["blocks"]},
         )
 
+    def test_delete_allows_registered_legacy_quarantine_even_when_allowed_roots_exclude_it(self):
+        library_path = (
+            "/mnt/sdc/.media-main/Movies/Fixture (2026)/Fixture.mkv"
+        )
+        legacy_path = (
+            "/mnt/sdc/.media-quarantine/reconcile/Fixture (2026)/Fixture.mkv"
+        )
+        item = resource("res_a", file_path=library_path)
+        item["files"][0]["nlink"] = 2
+        item["cleanupFiles"][0]["nlink"] = 2
+        item["cleanupFiles"][0]["allowed"] = True
+        item["cleanupFiles"][0]["legacyQuarantine"] = False
+        item["cleanupFiles"].append(
+            {
+                **item["cleanupFiles"][0],
+                "path": legacy_path,
+                "source": "hardlink",
+                "allowed": False,
+                "legacyQuarantine": True,
+            }
+        )
+        source = inventory(item)
+        # The control server passes the configured allowed roots, which do
+        # not include the legacy media quarantine.
+        allowed_roots = (
+            "/mnt/sdc/downloads/completed",
+            "/mnt/sdc/.media-main/Movies",
+        )
+
+        plan = build_plan(
+            source,
+            snapshot_id="snap_test",
+            resource_ids=["res_a"],
+            mode="delete",
+            allowed_roots=allowed_roots,
+            now=NOW,
+        )
+
+        self.assertTrue(plan["canExecute"])
+        self.assertIn(
+            "legacy_quarantine_impact",
+            {warning["code"] for warning in plan["warnings"]},
+        )
+        self.assertEqual(
+            set(plan["operations"]["unlinkFiles"]),
+            {library_path, legacy_path},
+        )
+
     def test_hr_and_unfinished_resources_are_blocked(self):
         hr_task = task(hr=True, private=True)
         unfinished_task = task(task_hash="b" * 40)
