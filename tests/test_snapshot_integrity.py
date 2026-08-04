@@ -94,6 +94,28 @@ class SnapshotIntegrityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_snapshot_pair(public, private)
 
+    def test_library_chinese_name_without_duplicate_english_name_is_valid(self):
+        public, private = pair()
+        public["resources"][0].update(
+            {
+                "title": "X战警：逆转未来",
+                "englishTitle": "X战警：逆转未来",
+                "library": True,
+            }
+        )
+        validate_snapshot_pair(public, private)
+
+        public, private = pair()
+        public["resources"][0].update(
+            {
+                "title": "中文片名 1080p",
+                "englishTitle": "中文片名 1080p",
+                "library": False,
+            }
+        )
+        with self.assertRaises(ValueError):
+            validate_snapshot_pair(public, private)
+
     def test_public_snapshot_rejects_paths_hashes_and_private_keys(self):
         for leak in (
             {"path": "/mnt/sdc/private.mkv"},
