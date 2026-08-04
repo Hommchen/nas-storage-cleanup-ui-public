@@ -55,7 +55,7 @@ class MoviePilotPluginTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["StorageCleanup"]["system_version"], ">=2.14.6")
-        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.15")
+        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.16")
         self.assertIn("自动发现 MoviePilot", manifest["StorageCleanup"]["description"])
         self.assertIn(
             "一键清理全链路耦合",
@@ -86,7 +86,7 @@ class MoviePilotPluginTests(unittest.TestCase):
             (PLUGIN_ROOT / "__init__.py").read_text(encoding="utf-8"),
         )
         self.assertTrue(
-            (PLUGIN_ROOT / "dist/v1.0.15/assets/remoteEntry.js").is_file()
+            (PLUGIN_ROOT / "dist/v1.0.16/assets/remoteEntry.js").is_file()
         )
 
     def test_bridge_uses_token_only_in_internal_headers(self):

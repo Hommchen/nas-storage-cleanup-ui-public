@@ -18,3 +18,9 @@ test('refresh feedback explains long H&R probes without declaring failure', () =
   assert.match(refreshFeedback(120), /已等待 120 秒/)
   assert.doesNotMatch(refreshFeedback(120), /失败|错误/)
 })
+
+test('refresh feedback omits H&R when the global switch is off', () => {
+  assert.equal(refreshFeedback(5, false), '正在核对媒体目录与 qB（已等待 5 秒）')
+  assert.match(refreshFeedback(30, false), /远端资源核对/)
+  assert.doesNotMatch(refreshFeedback(30, false), /H&R/)
+})

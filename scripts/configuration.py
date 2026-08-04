@@ -13,12 +13,14 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 from urllib.parse import urlsplit
 from typing import Any
 
 
 CONFIG_VERSION = 1
+SUPPORTED_HR_PARSERS = frozenset({"nexusphp_myhr"})
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -29,6 +31,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "moviepilot_db": "/path/to/moviepilot/config/user.db",
     "qb_backup": "/path/to/qBittorrent/BT_backup",
     "execution_backup": "/path/to/storage-cleanup/qb-backups",
+    # Hit and Run is deliberately opt-in.  Keep the known BTSchool entry as
+    # a ready-to-review row, but do not query it or let it affect cleanup
+    # while the global switch remains false.
+    "hit_and_run_enabled": False,
+    "hit_and_run_sites": [
+        {
+            "site": "btschool.club",
+            "path": "/myhr.php",
+            "parser": "nexusphp_myhr",
+        }
+    ],
     # Optional, host-local evidence of torrents that were published by this
     # account.  An empty list keeps generic installs portable; the collector
     # still checks its PiNAS default path when this is unset.
@@ -73,6 +86,42 @@ def _path(value: object, field: str) -> str:
     return str(parsed)
 
 
+def _hit_and_run_site(value: object, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigurationError(f"{field} 必须是非空站点域名。")
+    candidate = value.strip().lower().rstrip(".")
+    if (
+        len(candidate) > 253
+        or not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?", candidate)
+        or ".." in candidate
+        or candidate.startswith(".")
+        or candidate.endswith(".")
+    ):
+        raise ConfigurationError(f"{field} 必须是站点域名，不能包含协议、路径或凭证。")
+    return candidate
+
+
+def _hit_and_run_path(value: object, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigurationError(f"{field} 必须是非空站内相对路径。")
+    candidate = value.strip()
+    parsed = urlsplit(candidate)
+    if (
+        len(candidate) > 512
+        or not candidate.startswith("/")
+        or candidate.startswith("//")
+        or parsed.scheme
+        or parsed.netloc
+        or "\\" in candidate
+        or any(ord(character) < 0x20 for character in candidate)
+        or any(part == ".." for part in parsed.path.split("/"))
+    ):
+        raise ConfigurationError(
+            f"{field} 必须是同源站内相对路径，例如 /myhr.php。"
+        )
+    return candidate
+
+
 def normalize_config(raw: object) -> dict[str, Any]:
     if raw is None:
         return default_config()
@@ -89,6 +138,36 @@ def normalize_config(raw: object) -> dict[str, Any]:
     merged["version"] = CONFIG_VERSION
     for field in PATH_FIELDS:
         merged[field] = _path(merged[field], field)
+    hit_and_run_enabled = merged.get("hit_and_run_enabled", False)
+    if not isinstance(hit_and_run_enabled, bool):
+        raise ConfigurationError("hit_and_run_enabled 必须是布尔值。")
+    merged["hit_and_run_enabled"] = hit_and_run_enabled
+    raw_hr_sites = merged.get("hit_and_run_sites") or []
+    if not isinstance(raw_hr_sites, list) or len(raw_hr_sites) > 32:
+        raise ConfigurationError("hit_and_run_sites 必须是最多 32 行的配置数组。")
+    hr_sites: list[dict[str, str]] = []
+    seen_hr_sites: set[str] = set()
+    for index, raw_site in enumerate(raw_hr_sites):
+        if not isinstance(raw_site, dict):
+            raise ConfigurationError(f"hit_and_run_sites[{index}] 必须是对象。")
+        site = _hit_and_run_site(
+            raw_site.get("site"),
+            f"hit_and_run_sites[{index}].site",
+        )
+        path = _hit_and_run_path(
+            raw_site.get("path"),
+            f"hit_and_run_sites[{index}].path",
+        )
+        parser = str(raw_site.get("parser") or "nexusphp_myhr").strip()
+        if parser not in SUPPORTED_HR_PARSERS:
+            raise ConfigurationError(
+                f"hit_and_run_sites[{index}].parser 暂不支持：{parser}。"
+            )
+        if site in seen_hr_sites:
+            raise ConfigurationError(f"Hit and Run 站点重复配置：{site}。")
+        seen_hr_sites.add(site)
+        hr_sites.append({"site": site, "path": path, "parser": parser})
+    merged["hit_and_run_sites"] = hr_sites
     raw_publication_roots = merged.get("publication_ledger_roots")
     if raw_publication_roots is None:
         raw_publication_roots = []

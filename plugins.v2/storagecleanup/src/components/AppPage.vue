@@ -82,28 +82,52 @@ const onboardingRequired = computed(() => !loading.value && (
   !snapshot.value.snapshotId || health.value.configReady === false
 ))
 const unresolvedTransactions = computed(() => Number(snapshot.value.stats?.unresolvedTransactions || 0))
-const hrGap = computed(() => Math.max(
-  0,
-  Number(
-    snapshot.value.stats?.hrMissingQbTasks ??
-    Number(snapshot.value.stats?.hrActiveTitles || 0) - Number(snapshot.value.stats?.hrMatchedQbTasks || 0),
-  ),
-))
+const hitAndRunEnabled = computed(() => {
+  if (typeof health.value.hitAndRunEnabled === 'boolean') {
+    return health.value.hitAndRunEnabled
+  }
+  return Boolean(snapshot.value.snapshotId && snapshot.value.stats?.hrEnabled !== false)
+})
+const hrFailures = computed(() => {
+  if (!hitAndRunEnabled.value) return []
+  return Object.entries(snapshot.value.stats?.hrSources || {})
+    .filter(([, source]) => source?.available !== true && source?.error)
+    .map(([site, source]) => ({
+      site: source?.taskLabel || site,
+      error: source?.validated === true
+        ? `${source.error}；该站已采取保护优先`
+        : `${source.error}；首次验证未成功，H&R 尚未生效`,
+    }))
+})
+const hrGap = computed(() => {
+  if (!hitAndRunEnabled.value) return 0
+  return Math.max(
+    0,
+    Number(
+      snapshot.value.stats?.hrMissingQbTasks ??
+      Number(snapshot.value.stats?.hrActiveTitles || 0) - Number(snapshot.value.stats?.hrMatchedQbTasks || 0),
+    ),
+  )
+})
 const hrUnassigned = computed(() => Number(
-  snapshot.value.stats?.hrMissingUnassigned ??
-  snapshot.value.stats?.hrMissingUncovered ??
-  0,
+  hitAndRunEnabled.value
+    ? (snapshot.value.stats?.hrMissingUnassigned ??
+      snapshot.value.stats?.hrMissingUncovered ??
+      0)
+    : 0,
 ))
 const filterGroups = computed(() => FILTER_GROUPS.map(group => ({
   ...group,
-  options: group.options.map(option => ({
+  options: group.options
+    .filter(option => hitAndRunEnabled.value || option.id !== 'hr')
+    .map(option => ({
     ...option,
     count: filterOptionCount(resources.value, filterState.value, group.id, option.id),
-  })),
+    })),
 })))
 const activeFilterChips = computed(() => {
   const chips = []
-  for (const group of FILTER_GROUPS) {
+  for (const group of filterGroups.value) {
     const selected = group.id === 'flags'
       ? filterState.value.flags
       : [filterState.value[group.id]]
@@ -124,7 +148,7 @@ const planExpired = computed(() => Boolean(plan.value && Date.parse(plan.value.e
 const allFiltersDefault = computed(() => activeFilterChips.value.length === 0)
 const refreshMessage = computed(() => {
   if (!refreshing.value) return ''
-  return refreshFeedback(refreshElapsed.value)
+  return refreshFeedback(refreshElapsed.value, hitAndRunEnabled.value)
 })
 
 let refreshTimer = null
@@ -172,6 +196,9 @@ function acceptSnapshot(next) {
     throw new Error('资源快照格式不受支持。')
   }
   snapshot.value = next
+  if (!hitAndRunEnabled.value && filterState.value.seed === 'hr') {
+    filterState.value = createFilterState()
+  }
   const available = new Set(next.resources.map(item => item.id))
   selected.value = selected.value.filter(id => available.has(id))
 }
@@ -184,6 +211,13 @@ async function loadStatus() {
     if (!payload?.ok || !payload.snapshot) throw new Error(payloadError(payload, '无法读取清理台状态。'))
     health.value = payload.health || {}
     acceptSnapshot(payload.snapshot)
+    if (
+      typeof health.value.hitAndRunEnabled === 'boolean'
+      && payload.snapshot.stats?.hrEnabled !== health.value.hitAndRunEnabled
+    ) {
+      health.value = { ...health.value, inventoryCurrent: false }
+      void refreshSnapshot()
+    }
     if (health.value.inventoryCurrent === false) {
       selected.value = []
     }
@@ -419,6 +453,17 @@ function closeSettings() {
   settingsOpen.value = false
 }
 
+function handleConfigSaved(config) {
+  health.value = {
+    ...health.value,
+    hitAndRunEnabled: config?.hit_and_run_enabled === true,
+    inventoryCurrent: false,
+  }
+  selected.value = []
+  filterState.value = createFilterState()
+  void refreshSnapshot()
+}
+
 onMounted(loadStatus)
 onUnmounted(stopRefreshTimer)
 </script>
@@ -509,15 +554,23 @@ onUnmounted(stopRefreshTimer)
       <b>查看恢复状态</b>
     </button>
 
+    <section v-if="hrFailures.length" class="notice warning hr-failure-notice" role="status">
+      <i>H</i>
+      <p>
+        <strong>{{ hrFailures.length }} 个 H&R 站点后台查询失败</strong>
+        <span>{{ hrFailures.map(item => `${item.site}：${item.error}`).join('；') }}</span>
+      </p>
+    </section>
+
     <button
-      v-else-if="hrGap"
+      v-if="!unresolvedTransactions && !hrFailures.length && hrGap"
       :class="['notice', { warning: hrUnassigned }]"
       type="button"
       @click="loadGaps"
     >
       <i>H</i>
       <p>
-        <strong>{{ hrGap }} 个学校站 H&R 尚未恢复完成</strong>
+        <strong>{{ hrGap }} 个 H&R 任务尚未恢复完成</strong>
         <span>
           {{ hrUnassigned
             ? `${hrUnassigned} 个未精确关联媒体；不会锁定无关资源。`
@@ -784,7 +837,7 @@ onUnmounted(stopRefreshTimer)
 
       <div v-if="gapOpen" class="modal-backdrop" @click.self="gapOpen = false">
         <section class="modal compact-modal">
-          <header><div><span>学校站实时保护</span><h2>H&R 缺口明细</h2></div><button @click="gapOpen = false">×</button></header>
+          <header><div><span>H&R 实时保护</span><h2>H&R 缺口明细</h2></div><button @click="gapOpen = false">×</button></header>
           <div v-if="gapLoading" class="empty-state">正在核对…</div>
           <div v-if="gapError" class="plan-state blocked">{{ gapError }}</div>
           <div v-for="item in gaps" :key="item.title" class="gap-row">
@@ -832,7 +885,7 @@ onUnmounted(stopRefreshTimer)
             </div>
             <button type="button" aria-label="关闭设置" @click="closeSettings">×</button>
           </header>
-          <Config :api="props.api" :plugin-id="props.pluginId" />
+          <Config :api="props.api" :plugin-id="props.pluginId" @config-saved="handleConfigSaved" />
         </section>
       </div>
     </Teleport>
@@ -961,6 +1014,8 @@ button { color: inherit; }
 .notice p { flex: 1; }
 .notice p span { color: var(--muted); font-size: 13px; }
 .notice b { color: var(--warn); font-size: 13px; }
+.notice.warning { border-color: rgba(184, 107, 17, .28); background: rgba(184, 107, 17, .08); }
+.notice.warning i { color: var(--warn); }
 .notice.critical { border-color: rgba(196, 75, 71, .25); background: rgba(196, 75, 71, .08); }
 .notice.critical b { color: var(--danger); }
 .stale-notice { cursor: default; }

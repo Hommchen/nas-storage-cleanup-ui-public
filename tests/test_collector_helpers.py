@@ -30,6 +30,75 @@ exec(compile(HELPERS_SOURCE, "<collector-helpers>", "exec"), helpers)
 
 
 class CollectorHelperTests(unittest.TestCase):
+    def test_disabled_hit_and_run_source_is_completely_empty(self):
+        status = helpers["configured_hr_records"]([])
+
+        self.assertFalse(status["enabled"])
+        self.assertEqual(status["configured"], 0)
+        self.assertEqual(status["effective"], 0)
+        self.assertEqual(status["sources"], {})
+        self.assertEqual(status["activeCount"], 0)
+
+    def test_configured_source_needs_first_success_before_protecting(self):
+        row = {
+            "hash": "a" * 40,
+            "name": "Fixture.2026.1080p",
+            "tracker": "https://tracker.btschool.club/announce",
+            "tags": "H&R",
+            "private": True,
+            "progress": 1,
+        }
+        source = {
+            "site": "btschool.club",
+            "taskLabel": "学校站",
+            "validated": False,
+            "available": False,
+            "activeHashes": set(),
+            "candidateHashes": set(),
+        }
+        task = helpers["make_task"](
+            row,
+            "整部",
+            set(),
+            set(),
+            True,
+            frozenset(),
+            frozenset(),
+            {"btschool.club": source},
+        )
+        self.assertFalse(task["hr"])
+        self.assertFalse(task["hr_unknown"])
+
+        source["validated"] = True
+        source["available"] = False
+        task = helpers["make_task"](
+            row,
+            "整部",
+            set(),
+            set(),
+            True,
+            frozenset(),
+            frozenset(),
+            {"btschool.club": source},
+        )
+        self.assertFalse(task["hr"])
+        self.assertTrue(task["hr_unknown"])
+
+        source["available"] = True
+        source["activeHashes"] = {"a" * 40}
+        task = helpers["make_task"](
+            row,
+            "整部",
+            set(),
+            set(),
+            True,
+            frozenset(),
+            frozenset(),
+            {"btschool.club": source},
+        )
+        self.assertTrue(task["hr"])
+        self.assertFalse(task["hr_unknown"])
+
     def test_remote_collector_source_compiles(self):
         source = REMOTE_COLLECTOR.replace(
             "__HR_HASH_CACHE__", "{}"

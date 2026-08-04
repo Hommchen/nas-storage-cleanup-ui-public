@@ -136,6 +136,17 @@ def build_plan(
     # still plan an unrelated public-BT resource while protecting affected
     # private-site tasks below.
     has_hr_sources = isinstance(inventory_stats.get("hrSources"), dict)
+    hr_sources = inventory_stats.get("hrSources") or {}
+    failed_hr_sites = {
+        str(source.get("taskLabel") or site)
+        for site, source in hr_sources.items()
+        if isinstance(source, dict)
+        and (
+            source.get("validated") is True
+            or "validated" not in source
+        )
+        and source.get("available") is not True
+    }
     if (
         mode == "delete"
         and not has_hr_sources
@@ -149,7 +160,15 @@ def build_plan(
     missing_unassigned = inventory_stats.get("hrMissingUnassigned")
     if missing_unassigned is None:
         missing_unassigned = inventory_stats.get("hrMissingUncovered") or 0
-    if mode == "delete" and int(missing_unassigned) > 0:
+    if (
+        mode == "delete"
+        and inventory_stats.get("hrEnabled") is not False
+        and (
+            "hrEffectiveSites" not in inventory_stats
+            or int(inventory_stats.get("hrEffectiveSites") or 0) > 0
+        )
+        and int(missing_unassigned) > 0
+    ):
         _add_reason(
             warnings,
             "unassigned_hr_recovery",
@@ -181,8 +200,11 @@ def build_plan(
         if (
             mode == "delete"
             and has_hr_sources
-            and not inventory_stats.get("hrSourceAvailable", False)
-            and any(task.get("private") for task in tasks)
+            and any(
+                task.get("private")
+                and str(task.get("site") or "") in failed_hr_sites
+                for task in tasks
+            )
         ):
             _add_reason(
                 resource_blocks,
