@@ -47,6 +47,7 @@ _CONFIG_DEFAULT = {
         "/path/to/media/movies",
         "/path/to/media/tv",
     ],
+    "hardlink_discovery_roots": [],
     "quarantine_roots": {
         "/path/to": "/path/to/.storage-cleanup-quarantine",
     },
@@ -57,6 +58,11 @@ QB_BACKUP = Path(CONFIG["qb_backup"])
 MOVIEPILOT_DB = Path(CONFIG["moviepilot_db"])
 EXECUTION_BACKUP = Path(CONFIG["execution_backup"])
 ALLOWED_ROOTS = tuple(Path(value) for value in CONFIG["allowed_roots"])
+LEGACY_QUARANTINE_ROOTS = tuple(
+    Path(value)
+    for value in (CONFIG.get("hardlink_discovery_roots") or ())
+    if "/.media-quarantine/" in str(value) + "/"
+)
 QUARANTINE_ROOTS = {
     str(volume): Path(value)
     for volume, value in CONFIG["quarantine_roots"].items()
@@ -252,6 +258,22 @@ def path_allowed(value):
     return any(
         resolved == root or root in resolved.parents
         for root in ALLOWED_ROOTS
+    )
+
+
+def legacy_quarantine_allowed(value):
+    """Allow a plan-registered hard link that lives under a legacy media
+    quarantine discovery root (for example /.media-quarantine/)."""
+    path = Path(str(value or ""))
+    if not path.is_absolute() or ".." in path.parts:
+        return False
+    try:
+        resolved = Path(os.path.realpath(path))
+    except OSError:
+        return False
+    return any(
+        resolved == root or root in resolved.parents
+        for root in LEGACY_QUARANTINE_ROOTS
     )
 
 
@@ -454,7 +476,7 @@ def remove_moviepilot_indexes(raw_indexes, backup_dir):
 
 
 def validate_file(path, expected):
-    if not path_allowed(path):
+    if not path_allowed(path) and not legacy_quarantine_allowed(path):
         fail("path_outside_allowlist", "文件已离开允许清理的目录。")
     candidate = Path(path)
     try:

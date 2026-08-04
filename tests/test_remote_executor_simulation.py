@@ -118,10 +118,13 @@ class RemoteExecutorSimulationTests(unittest.TestCase):
         self.sdd = self.root / "sdd"
         self.download = self.sdc / "downloads/completed/Fixture"
         self.library = self.sdc / ".media-main/Movies/Fixture"
+        self.legacy_quarantine = self.sdd / ".media-quarantine/Fixture"
         self.download.mkdir(parents=True)
         self.library.mkdir(parents=True)
+        self.legacy_quarantine.mkdir(parents=True)
         self.payload = self.download / "Fixture.mkv"
         self.library_payload = self.library / "Fixture.mkv"
+        self.legacy_payload = self.legacy_quarantine / "Fixture.mkv"
         self.payload.write_bytes(b"fixture payload")
         os.link(self.payload, self.library_payload)
 
@@ -180,22 +183,36 @@ class RemoteExecutorSimulationTests(unittest.TestCase):
         self.thread.join(timeout=2)
         self.temporary.cleanup()
 
-    def source(self):
+    def source(self, *, include_legacy_discovery: bool = True):
+        allowed_roots = [
+            str(self.sdc / "downloads/completed"),
+            str(self.sdd / "downloads/completed"),
+            str(self.sdc / ".media-main/Movies"),
+            str(self.sdd / "media/TV"),
+            str(self.sdc / "media/Movies"),
+            str(self.sdc / "media/TV"),
+        ]
+        discovery_roots = []
+        if include_legacy_discovery:
+            allowed_roots.extend(
+                [
+                    str(self.sdc / ".media-quarantine"),
+                    str(self.sdd / ".media-quarantine"),
+                ]
+            )
+            discovery_roots.extend(
+                [
+                    str(self.sdc / ".media-quarantine"),
+                    str(self.sdd / ".media-quarantine"),
+                ]
+            )
         config = {
             "qb_url": f"http://127.0.0.1:{self.server.server_address[1]}",
             "qb_backup": str(self.qb_backup),
             "moviepilot_db": str(self.moviepilot_db),
             "execution_backup": str(self.root / "sdc/library-tools/storage-cleanup/qb-backups"),
-            "allowed_roots": [
-                str(self.sdc / "downloads/completed"),
-                str(self.sdd / "downloads/completed"),
-                str(self.sdc / ".media-main/Movies"),
-                str(self.sdd / "media/TV"),
-                str(self.sdc / "media/Movies"),
-                str(self.sdc / "media/TV"),
-                str(self.sdc / ".media-quarantine"),
-                str(self.sdd / ".media-quarantine"),
-            ],
+            "allowed_roots": allowed_roots,
+            "hardlink_discovery_roots": discovery_roots,
             "quarantine_roots": {
                 str(self.sdc): str(self.sdc / ".storage-cleanup-quarantine"),
                 str(self.sdd): str(self.sdd / ".storage-cleanup-quarantine"),
@@ -212,6 +229,22 @@ class RemoteExecutorSimulationTests(unittest.TestCase):
         return source
 
     def expectations(self):
+        result = {}
+        for path in (
+            self.payload,
+            self.library_payload,
+            self.legacy_payload,
+        ):
+            stat_result = path.stat()
+            result[str(path)] = {
+                "dev": stat_result.st_dev,
+                "inode": stat_result.st_ino,
+                "size": stat_result.st_size,
+                "nlink": stat_result.st_nlink,
+            }
+        return result
+
+    def expectations_without_legacy(self):
         result = {}
         for path in (self.payload, self.library_payload):
             stat_result = path.stat()
@@ -230,7 +263,11 @@ class RemoteExecutorSimulationTests(unittest.TestCase):
         files=False,
         include_task=True,
         include_moviepilot_index=False,
+        include_legacy=False,
     ):
+        unlink_paths = [str(self.payload), str(self.library_payload)]
+        if include_legacy:
+            unlink_paths.append(str(self.legacy_payload))
         operations = {
             "qbStop": (
                 [TASK_HASH]
@@ -243,9 +280,7 @@ class RemoteExecutorSimulationTests(unittest.TestCase):
                 else []
             ),
             "unlinkFiles": (
-                [str(self.payload), str(self.library_payload)]
-                if files
-                else []
+                unlink_paths if files else []
             ),
             "moviepilotIndexes": (
                 [
@@ -272,9 +307,13 @@ class RemoteExecutorSimulationTests(unittest.TestCase):
                     "planId": PLAN_ID,
                     "mode": mode,
                     "operations": operations,
-                    "fileExpectations": self.expectations()
-                    if files
-                    else {},
+                    "fileExpectations": (
+                        self.expectations()
+                        if files and include_legacy
+                        else self.expectations_without_legacy()
+                        if files
+                        else {}
+                    ),
                 }
             ),
             text=True,
@@ -371,6 +410,56 @@ class RemoteExecutorSimulationTests(unittest.TestCase):
         self.assertNotIn(TASK_HASH, self.qb_state.tasks)
         self.assertFalse(self.payload.exists())
         self.assertFalse(self.library_payload.exists())
+
+    def test_delete_includes_plan_registered_legacy_quarantine_hardlink(self):
+        os.link(self.payload, self.legacy_payload)
+        completed, result = self.run_executor(
+            "delete",
+            files=True,
+            include_legacy=True,
+        )
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["filesDeleted"], 3)
+        self.assertFalse(self.payload.exists())
+        self.assertFalse(self.library_payload.exists())
+        self.assertFalse(self.legacy_payload.exists())
+
+    def test_delete_rejects_legacy_quarantine_path_without_discovery_root(self):
+        os.link(self.payload, self.legacy_payload)
+        legacy = str(self.legacy_payload)
+        config = self.source(include_legacy_discovery=False)
+        completed = subprocess.run(
+            [sys.executable, "-c", config],
+            input=json.dumps(
+                {
+                    "planId": PLAN_ID,
+                    "mode": "delete",
+                    "operations": {
+                        "qbStop": [],
+                        "qbRemoveKeepFiles": [TASK_HASH],
+                        "unlinkFiles": [
+                            str(self.payload),
+                            str(self.library_payload),
+                            legacy,
+                        ],
+                        "moviepilotIndexes": [],
+                    },
+                    "fileExpectations": self.expectations(),
+                }
+            ),
+            text=True,
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+        result = json.loads(completed.stdout)
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertEqual(result["error"]["code"], "path_outside_allowlist")
+        self.assertTrue(self.payload.exists())
+        self.assertTrue(self.legacy_payload.exists())
 
     def test_file_only_delete_has_a_recoverable_transaction(self):
         completed, result = self.run_executor(
@@ -608,7 +697,7 @@ class RemoteExecutorSimulationTests(unittest.TestCase):
                             str(self.library_payload),
                         ],
                     },
-                    "fileExpectations": self.expectations(),
+                    "fileExpectations": self.expectations_without_legacy(),
                 }
             ),
             text=True,
@@ -691,7 +780,7 @@ class RemoteExecutorSimulationTests(unittest.TestCase):
                                     str(self.library_payload),
                                 ],
                             },
-                            "fileExpectations": self.expectations(),
+                            "fileExpectations": self.expectations_without_legacy(),
                         }
                     ),
                     text=True,
@@ -745,7 +834,7 @@ class RemoteExecutorSimulationTests(unittest.TestCase):
                             str(self.library_payload),
                         ],
                     },
-                    "fileExpectations": self.expectations(),
+                    "fileExpectations": self.expectations_without_legacy(),
                 }
             ),
             text=True,
@@ -790,7 +879,7 @@ class RemoteExecutorSimulationTests(unittest.TestCase):
                             str(self.library_payload),
                         ],
                     },
-                    "fileExpectations": self.expectations(),
+                    "fileExpectations": self.expectations_without_legacy(),
                 }
             ),
             text=True,

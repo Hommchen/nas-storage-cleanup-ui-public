@@ -498,6 +498,31 @@ class CollectorHelperTests(unittest.TestCase):
             self.assertNotIn(str(transaction_link), index[inode])
             self.assertNotIn(str(symlink), index[inode])
 
+    def test_hardlink_index_skips_transaction_quarantine_inside_discovery_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            volume = root / "volume"
+            library = volume / "library"
+            transaction_quarantine = volume / ".storage-cleanup-quarantine"
+            for directory in (library, transaction_quarantine):
+                directory.mkdir(parents=True)
+            media = library / "Fixture.mkv"
+            media.write_bytes(b"fixture")
+            staged = transaction_quarantine / "plan_a/000000-Fixture.mkv"
+            staged.parent.mkdir()
+            os.link(media, staged)
+            # Discovery over the whole volume must still exclude the
+            # transaction quarantine where files are staged for deletion.
+            helpers["HARDLINK_DISCOVERY_ROOTS"] = (str(volume),)
+            helpers["QUARANTINE_ROOTS"] = (transaction_quarantine,)
+
+            index, verified = helpers["hardlink_path_index"]()
+
+            self.assertTrue(verified)
+            inode = (media.stat().st_dev, media.stat().st_ino)
+            self.assertEqual(index[inode], {str(media)})
+            self.assertNotIn(str(staged), index[inode])
+
     def test_unresolved_transactions_include_nonterminal_state_and_quarantine(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

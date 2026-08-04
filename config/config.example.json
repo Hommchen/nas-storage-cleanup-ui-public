@@ -22,6 +22,9 @@
     "/path/to/media/movies",
     "/path/to/media/tv"
   ],
+  "hardlink_discovery_roots": [
+    "/mnt/sdd/.media-quarantine"
+  ],
   "quarantine_roots": {
     "/path/to": "/path/to/.storage-cleanup-quarantine"
   }

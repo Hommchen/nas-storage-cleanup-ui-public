@@ -227,11 +227,15 @@ class ActionPlannerTests(unittest.TestCase):
         item = resource("res_a", file_path=library_path)
         item["files"][0]["nlink"] = 2
         item["cleanupFiles"][0]["nlink"] = 2
+        item["cleanupFiles"][0]["allowed"] = True
+        item["cleanupFiles"][0]["legacyQuarantine"] = False
         item["cleanupFiles"].append(
             {
                 **item["cleanupFiles"][0],
                 "path": legacy_path,
                 "source": "hardlink",
+                "allowed": False,
+                "legacyQuarantine": True,
             }
         )
         source = inventory(item)
@@ -252,6 +256,28 @@ class ActionPlannerTests(unittest.TestCase):
         self.assertEqual(
             set(plan["operations"]["unlinkFiles"]),
             {library_path, legacy_path},
+        )
+
+    def test_delete_rejects_legacy_path_without_explicit_quarantine_flag(self):
+        outside = resource("res_a")
+        outside["cleanupFiles"][0]["allowed"] = False
+        outside["cleanupFiles"][0]["legacyQuarantine"] = False
+        outside["cleanupFiles"][0]["path"] = (
+            "/mnt/sdc/.media-quarantine/reconcile/Fixture (2026)/Fixture.mkv"
+        )
+        source = inventory(outside)
+        plan = build_plan(
+            source,
+            snapshot_id="snap_test",
+            resource_ids=["res_a"],
+            mode="delete",
+            now=NOW,
+        )
+
+        self.assertFalse(plan["canExecute"])
+        self.assertIn(
+            "path_outside_allowlist",
+            {item["code"] for item in plan["blocks"]},
         )
 
     def test_hr_and_unfinished_resources_are_blocked(self):

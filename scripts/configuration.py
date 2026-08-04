@@ -51,6 +51,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "/path/to/media/movies",
         "/path/to/media/tv",
     ],
+    # Optional read-only inode discovery roots that are NOT cleanup boundaries.
+    # Typical use: historical media quarantine folders such as
+    # "/mnt/sdd/.media-quarantine" whose hard links must be counted before a
+    # full delete can prove complete space reclamation.  Missing roots are
+    # tolerated (they simply contribute no links); configured roots still
+    # must live under a known data volume and must not cover the transaction
+    # quarantine root.
+    "hardlink_discovery_roots": [],
     "quarantine_roots": {
         "/path/to": "/path/to/.storage-cleanup-quarantine",
     },
@@ -189,6 +197,17 @@ def normalize_config(raw: object) -> dict[str, Any]:
     if not roots:
         raise ConfigurationError("至少需要一个 allowed_roots。")
     merged["allowed_roots"] = roots
+    raw_discovery = merged.get("hardlink_discovery_roots")
+    if raw_discovery is None:
+        raw_discovery = []
+    if not isinstance(raw_discovery, list):
+        raise ConfigurationError("hardlink_discovery_roots 必须是路径数组。")
+    discovery_roots: list[str] = []
+    for index, value in enumerate(raw_discovery):
+        item = _path(value, f"hardlink_discovery_roots[{index}]")
+        if item not in discovery_roots:
+            discovery_roots.append(item)
+    merged["hardlink_discovery_roots"] = discovery_roots
     raw_quarantine = merged.get("quarantine_roots")
     if not isinstance(raw_quarantine, dict) or not raw_quarantine:
         raise ConfigurationError("quarantine_roots 必须是非空对象。")
@@ -214,6 +233,24 @@ def normalize_config(raw: object) -> dict[str, Any]:
         ):
             raise ConfigurationError(
                 f"allowed_roots 不能覆盖清理隔离目录：{root}。"
+            )
+    for root in (Path(value) for value in discovery_roots):
+        if any(root == volume for volume in volume_paths):
+            raise ConfigurationError(
+                f"hardlink_discovery_roots 不能直接开放整个数据卷：{root}。"
+            )
+        if not any(volume in root.parents for volume in volume_paths):
+            raise ConfigurationError(
+                f"hardlink_discovery_roots 必须位于已配置卷根目录下：{root}。"
+            )
+        if any(
+            root == quarantine_path
+            or root in quarantine_path.parents
+            or quarantine_path in root.parents
+            for quarantine_path in quarantine_paths
+        ):
+            raise ConfigurationError(
+                f"hardlink_discovery_roots 不能覆盖清理隔离目录：{root}。"
             )
     for field in ("qb_backup", "execution_backup"):
         backup_path = Path(merged[field])
@@ -328,6 +365,13 @@ def probe_config(config: dict[str, Any]) -> dict[str, Any]:
         inspect(normalized[field], field)
     for value in normalized["allowed_roots"]:
         inspect(value, "allowed_root")
+    # Discovery roots are best-effort read-only indexes: a missing root does
+    # not threaten any cleanup boundary, so it must not fail the refresh.
+    for value in normalized["hardlink_discovery_roots"]:
+        inspect(value, "hardlink_discovery_root", missing_allowed=True)
+        path = Path(value)
+        if path.exists() and not path.is_dir():
+            problems.append(f"硬链接发现根不是目录：{value}")
     for volume, value in normalized["quarantine_roots"].items():
         inspect(volume, "quarantine_volume")
         # Execution creates the configured quarantine root just before it
