@@ -116,6 +116,10 @@ HR_HASH_CACHE = __HR_HASH_CACHE__
 HR_SOURCE_CACHE = __HR_SOURCE_CACHE__
 QB_FILE_CACHE = __QB_FILE_CACHE__
 TMDB_SEASON_CACHE = __TMDB_CACHE__
+# MoviePilot V2 ships this public default TMDB key in app/core/config.py;
+# use it only when the host app.env does not define TMDB_API_KEY so the
+# expected-episode lookup works on stock MoviePilot installs.
+DEFAULT_TMDB_API_KEY = "db55323b8d3e4154498498a75642b381"
 HIT_AND_RUN_ENABLED = bool(CONFIG.get("hit_and_run_enabled", False))
 HIT_AND_RUN_SITES = tuple(CONFIG.get("hit_and_run_sites") or ())
 DEFAULT_PUBLICATION_LEDGER_ROOT = Path(
@@ -393,6 +397,16 @@ def inode_info(path):
     }
 
 
+def tmdb_api_key(env_text):
+    """Resolve the TMDB API key from app.env or the MoviePilot built-in."""
+    for raw in str(env_text or "").splitlines():
+        line = raw.strip()
+        if line.startswith("TMDB_API_KEY="):
+            value = line.split("=", 1)[1].strip()
+            return value or DEFAULT_TMDB_API_KEY
+    return DEFAULT_TMDB_API_KEY
+
+
 def tmdb_season_counts(tmdb_id):
     """Return {season_number: episode_count} for a TMDB series, or None.
 
@@ -404,18 +418,16 @@ def tmdb_season_counts(tmdb_id):
     api_key = None
     proxy = None
     try:
-        for raw in env_path.read_text(
-            encoding="utf-8", errors="replace"
-        ).splitlines():
-            line = raw.strip()
-            if line.startswith("TMDB_API_KEY="):
-                api_key = line.split("=", 1)[1].strip()
-            elif line.startswith("PROXY_HOST="):
-                proxy = line.split("=", 1)[1].strip()
+        env_text = env_path.read_text(encoding="utf-8", errors="replace")
     except OSError:
-        return None
-    if not api_key:
-        return None
+        env_text = ""
+    for raw in env_text.splitlines():
+        line = raw.strip()
+        if line.startswith("TMDB_API_KEY="):
+            api_key = line.split("=", 1)[1].strip()
+        elif line.startswith("PROXY_HOST="):
+            proxy = line.split("=", 1)[1].strip()
+    api_key = api_key or DEFAULT_TMDB_API_KEY
     url = (
         "https://api.themoviedb.org/3/tv/"
         + quote(str(tmdb_id), safe="")
