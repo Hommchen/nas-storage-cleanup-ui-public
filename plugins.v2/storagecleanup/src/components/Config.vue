@@ -5,6 +5,7 @@ const props = defineProps({
   api: { type: Object, default: () => ({}) },
   pluginId: { type: String, default: 'StorageCleanup' },
 })
+const emit = defineEmits(['config-saved'])
 
 const form = reactive({
   version: 1,
@@ -13,6 +14,8 @@ const form = reactive({
   moviepilot_db: '',
   qb_backup: '',
   execution_backup: '',
+  hit_and_run_enabled: false,
+  hit_and_run_sites: [],
   allowed_roots_text: '',
   quarantine_roots_text: '',
 })
@@ -25,6 +28,7 @@ const discovery = ref(null)
 const discovering = ref(false)
 const discoveryError = ref('')
 const advancedOpen = ref(false)
+const moviepilotSites = ref([])
 
 const pluginBase = computed(() => `plugin/${props.pluginId || 'StorageCleanup'}`)
 
@@ -36,14 +40,45 @@ function unwrap(response) {
 }
 
 function applyConfig(config) {
+  const hitAndRunSites = Array.isArray(config.hit_and_run_sites)
+    ? config.hit_and_run_sites.map(item => ({
+      site: String(item?.site || '').trim(),
+      path: String(item?.path || '').trim(),
+      parser: String(item?.parser || 'nexusphp_myhr').trim(),
+    }))
+    : []
   Object.assign(form, {
     ...config,
+    hit_and_run_enabled: config.hit_and_run_enabled === true,
+    hit_and_run_sites: hitAndRunSites,
     media_index_db: config.media_index_db || config.jellyfin_db || '',
     allowed_roots_text: (config.allowed_roots || []).join('\n'),
     quarantine_roots_text: Object.entries(config.quarantine_roots || {})
       .map(([volume, target]) => `${volume}=${target}`)
       .join('\n'),
   })
+}
+
+function siteOptions(currentSite) {
+  const options = [...moviepilotSites.value]
+  const current = String(currentSite || '').trim()
+  if (current && !options.some(item => item.site === current)) {
+    options.push({ site: current, label: `${current}（当前配置）` })
+  }
+  return options
+}
+
+function addHitAndRunSite() {
+  const first = moviepilotSites.value[0]?.site || 'btschool.club'
+  form.hit_and_run_sites.push({
+    site: first,
+    path: first === 'btschool.club' ? '/myhr.php' : '',
+    parser: 'nexusphp_myhr',
+  })
+}
+
+function removeHitAndRunSite(index) {
+  form.hit_and_run_sites.splice(index, 1)
 }
 
 function parseLines(value) {
@@ -69,6 +104,14 @@ function buildConfig() {
     moviepilot_db: form.moviepilot_db,
     qb_backup: form.qb_backup,
     execution_backup: form.execution_backup,
+    hit_and_run_enabled: form.hit_and_run_enabled === true,
+    hit_and_run_sites: form.hit_and_run_sites
+      .map(item => ({
+        site: String(item.site || '').trim(),
+        path: String(item.path || '').trim(),
+        parser: String(item.parser || 'nexusphp_myhr').trim(),
+      }))
+      .filter(item => item.site || item.path),
     allowed_roots: parseLines(form.allowed_roots_text),
     quarantine_roots,
   }
@@ -82,6 +125,7 @@ async function load() {
     const payload = unwrap(await props.api.get(`${pluginBase.value}/config`))
     if (!payload?.ok || !payload.config) throw new Error(payload?.error?.message || '无法读取清理台配置。')
     applyConfig(payload.config)
+    moviepilotSites.value = payload.hitAndRunSites || []
     probe.value = payload.probe || null
     if (!probe.value?.ok) void discover()
   } catch (err) {
@@ -126,6 +170,8 @@ async function applyDiscovery() {
       throw new Error(payload?.error?.message || '自动配置保存失败。')
     }
     applyConfig(payload.config)
+    moviepilotSites.value = payload.hitAndRunSites || moviepilotSites.value
+    emit('config-saved', payload.config)
     probe.value = payload.probe || null
     message.value = probe.value?.ok
       ? '自动识别完成，路径探测通过；请刷新资源清单。'
@@ -148,6 +194,8 @@ async function save() {
     const payload = unwrap(await props.api.post(`${pluginBase.value}/config`, { config }))
     if (!payload?.ok || !payload.config) throw new Error(payload?.error?.message || '配置保存失败。')
     applyConfig(payload.config)
+    moviepilotSites.value = payload.hitAndRunSites || moviepilotSites.value
+    emit('config-saved', payload.config)
     probe.value = payload.probe || null
     message.value = probe.value?.ok
       ? '配置已保存，路径探测通过；请刷新资源清单。'
@@ -209,6 +257,41 @@ onMounted(load)
         <button type="button" :disabled="saving" @click="advancedOpen = true">打开手动配置</button>
       </div>
     </section>
+
+    <section v-if="!loading" class="hr-settings">
+      <div class="hr-heading">
+        <div>
+          <strong>Hit and Run（H&R）</strong>
+          <p>默认关闭。开启后，后台会随资源快照刷新，按每个站点配置的入口路径查询；Cookie 和 UA 继续使用 MoviePilot 登录态。</p>
+        </div>
+        <label class="switch-label">
+          <input v-model="form.hit_and_run_enabled" type="checkbox" />
+          <span>{{ form.hit_and_run_enabled ? '已开启' : '默认关闭' }}</span>
+        </label>
+      </div>
+      <div class="hr-rows">
+        <div v-if="!form.hit_and_run_sites.length" class="notice">尚未配置 H&R 站点；即使总开关打开，H&R 也不会生效。</div>
+        <div v-for="(item, index) in form.hit_and_run_sites" :key="`${item.site}-${index}`" class="hr-row">
+          <label>
+            站点
+            <select v-model="item.site">
+              <option v-for="site in siteOptions(item.site)" :key="site.site" :value="site.site">{{ site.label || site.site }}</option>
+            </select>
+          </label>
+          <label>
+            H&R 列表入口路径
+            <input v-model="item.path" autocomplete="off" placeholder="例如：/myhr.php" />
+          </label>
+          <span class="parser-hint">解析器：NexusPHP 标准</span>
+          <button class="remove-hr" type="button" :disabled="saving" @click="removeHitAndRunSite(index)">删除</button>
+        </div>
+      </div>
+      <div class="hr-actions">
+        <button type="button" :disabled="saving" @click="addHitAndRunSite">添加站点</button>
+        <span v-if="!moviepilotSites.length">当前未读取到 MoviePilot 已启用站点；可保留已有配置，后台会在站点可用后自动测试。</span>
+      </div>
+    </section>
+
     <details v-if="!loading" class="advanced-settings" :open="advancedOpen" @toggle="advancedOpen = $event.target.open">
       <summary>手动配置（自动识别失败时使用）</summary>
       <p>从 NAS 文件管理器复制路径；必须是清理台服务能访问到的路径。媒体库索引可以留空。</p>
@@ -263,6 +346,20 @@ p { margin: 0; opacity: .72; line-height: 1.6; }
 .apply-discovery { justify-self: start; background: rgb(var(--v-theme-primary)); color: rgb(var(--v-theme-on-primary)); }
 .discovery-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #b42318; line-height: 1.5; }
 .discovery-error button { border: 0; padding: 0; cursor: pointer; background: transparent; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; }
+.hr-settings { display: grid; gap: 12px; padding: 14px 16px; border: 1px solid rgba(var(--v-theme-primary, 59, 130, 246), .24); border-radius: 10px; background: rgba(var(--v-theme-primary, 59, 130, 246), .04); }
+.hr-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.hr-heading > div { display: grid; gap: 5px; }
+.hr-heading p { max-width: 700px; }
+.switch-label { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; font-weight: 700; }
+.switch-label input { width: auto; }
+.hr-rows { display: grid; gap: 8px; }
+.hr-row { display: grid; grid-template-columns: minmax(180px, .8fr) minmax(220px, 1.2fr) auto auto; align-items: end; gap: 10px; padding: 10px 0; border-top: 1px solid rgba(var(--v-border-color), .16); }
+.hr-row select, .hr-row input { width: 100%; box-sizing: border-box; padding: 9px 11px; border: 1px solid rgba(var(--v-border-color), .35); border-radius: 8px; background: transparent; color: inherit; font: inherit; font-weight: 400; }
+.parser-hint { padding-bottom: 10px; color: #087443; font-size: .88em; white-space: nowrap; }
+.hr-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.hr-actions button, .remove-hr { padding: 8px 12px; border: 1px solid rgba(var(--v-theme-primary, 59, 130, 246), .35); border-radius: 8px; cursor: pointer; background: transparent; color: inherit; font: inherit; font-weight: 700; }
+.remove-hr { color: #b42318; border-color: rgba(180, 35, 24, .28); }
+.hr-actions span { opacity: .72; font-size: .88em; }
 .advanced-settings { display: grid; gap: 12px; padding: 2px 0; }
 .advanced-settings summary { cursor: pointer; font-weight: 700; }
 .advanced-settings > p { padding-left: 2px; }
@@ -280,5 +377,5 @@ textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, m
 .probe-details summary { cursor: pointer; font-weight: 700; }
 .save { justify-self: start; padding: 10px 18px; border: 0; border-radius: 8px; cursor: pointer; background: rgb(var(--v-theme-primary)); color: rgb(var(--v-theme-on-primary)); }
 .save:disabled { opacity: .5; cursor: default; }
-@media (max-width: 760px) { .config-page { padding: 16px; } .form-grid { grid-template-columns: 1fr; } .wide { grid-column: auto; } .discovery-heading { align-items: stretch; flex-direction: column; } .discovery-actions { justify-content: flex-start; } }
+@media (max-width: 760px) { .config-page { padding: 16px; } .form-grid { grid-template-columns: 1fr; } .wide { grid-column: auto; } .discovery-heading { align-items: stretch; flex-direction: column; } .discovery-actions { justify-content: flex-start; } .hr-heading { align-items: stretch; flex-direction: column; } .hr-row { grid-template-columns: 1fr; align-items: stretch; } .parser-hint { padding-bottom: 0; } }
 </style>

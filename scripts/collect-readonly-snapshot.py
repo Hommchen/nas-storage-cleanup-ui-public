@@ -61,6 +61,10 @@ _CONFIG_DEFAULT = {
     "moviepilot_db": "/path/to/moviepilot/config/user.db",
     "qb_url": "http://127.0.0.1:8080",
     "execution_backup": "/path/to/storage-cleanup/qb-backups",
+    "hit_and_run_enabled": False,
+    "hit_and_run_sites": [
+        {"site": "btschool.club", "path": "/myhr.php", "parser": "nexusphp_myhr"}
+    ],
     "quarantine_roots": {
         "/path/to": "/path/to/.storage-cleanup-quarantine",
     },
@@ -100,6 +104,8 @@ HARDLINK_DISCOVERY_ROOTS = ALLOWED_ROOTS
 HR_HASH_CACHE = __HR_HASH_CACHE__
 HR_SOURCE_CACHE = __HR_SOURCE_CACHE__
 QB_FILE_CACHE = __QB_FILE_CACHE__
+HIT_AND_RUN_ENABLED = bool(CONFIG.get("hit_and_run_enabled", False))
+HIT_AND_RUN_SITES = tuple(CONFIG.get("hit_and_run_sites") or ())
 DEFAULT_PUBLICATION_LEDGER_ROOT = Path(
     "/mnt/sdc/library-tools/reports/pt-release-packets"
 )
@@ -712,12 +718,29 @@ def cached_hr_manifest(value):
     }
 
 
-def _hr_failure(error, hash_cache, source_cache, records=None, fetched_at=0):
+def _hr_failure(
+    error,
+    hash_cache,
+    source_cache,
+    site_config,
+    records=None,
+    fetched_at=0,
+    validated=False,
+):
     message = f"{type(error).__name__}: {str(error)[:240]}"
+    site = str(site_config.get("site") or "").strip().lower()
+    path = str(site_config.get("path") or "")
+    parser = str(site_config.get("parser") or "nexusphp_myhr")
     return {
+        "site": site,
+        "taskLabel": site_label({"tracker": "https://" + site}),
+        "path": path,
+        "parser": parser,
+        "configured": True,
+        "validated": bool(validated),
         "available": False,
         "stale": bool(records),
-        "sourceState": "stale" if records else "unavailable",
+        "sourceState": "stale" if validated else "unavailable",
         "error": message,
         "activeCount": 0,
         "activeHashes": set(),
@@ -728,17 +751,31 @@ def _hr_failure(error, hash_cache, source_cache, records=None, fetched_at=0):
         "hashCache": hash_cache,
         "sourceCache": source_cache,
         "sourceFetchedAt": fetched_at,
+        "lastSuccessAt": int(
+            (source_cache.get("sites", {}).get(site, {}) or {}).get(
+                "lastSuccessAt", 0
+            )
+            or 0
+        ),
         "missingRecords": [],
     }
 
 
-def btschool_hr_records(torrents):
-    """Read BTSchool H&R with a short listing cache and manifest cache.
+def btschool_hr_records(torrents, site_config=None):
+    """Read one configured NexusPHP H&R list and its official torrents.
 
-    A transient site failure returns the last known records as stale data and
-    marks the source unavailable.  Callers then protect affected tasks rather
-    than turning the entire read-only snapshot into a 502.
+    The function keeps the historical name for compatibility with the helper
+    tests, but the site and list path are supplied by configuration.  A site
+    only becomes effective after one complete successful read.  Once it has
+    been validated, a later failure is returned as unavailable so callers can
+    protect only that site's tasks.
     """
+
+    site_config = site_config or {
+        "site": "btschool.club",
+        "path": "/myhr.php",
+        "parser": "nexusphp_myhr",
+    }
 
     hash_cache = {
         str(torrent_id): str(task_hash).lower()
@@ -749,8 +786,33 @@ def btschool_hr_records(torrents):
     source_cache = HR_SOURCE_CACHE if isinstance(HR_SOURCE_CACHE, dict) else {}
     sites_cache = source_cache.setdefault("sites", {})
     manifests_cache = source_cache.setdefault("manifests", {})
-    site_key = "btschool.club"
+    site_key = str(site_config.get("site") or "").strip().lower()
+    list_path = str(site_config.get("path") or "").strip()
+    parser = str(site_config.get("parser") or "nexusphp_myhr").strip()
+    if (
+        not site_key
+        or not list_path.startswith("/")
+        or list_path.startswith("//")
+        or parser != "nexusphp_myhr"
+    ):
+        return _hr_failure(
+            ValueError("invalid H&R site configuration"),
+            hash_cache,
+            source_cache,
+            site_config,
+        )
     site_cache = sites_cache.setdefault(site_key, {})
+    if (
+        site_cache.get("path") != list_path
+        or site_cache.get("parser") != parser
+    ):
+        site_cache.clear()
+        for cache_key in list(manifests_cache):
+            if str(cache_key).startswith(site_key + ":"):
+                manifests_cache.pop(cache_key, None)
+    site_cache["path"] = list_path
+    site_cache["parser"] = parser
+    validated = bool(site_cache.get("validated"))
     cached_records = {
         str(record_id): str(title)
         for record_id, title in (site_cache.get("records") or {}).items()
@@ -762,7 +824,7 @@ def btschool_hr_records(torrents):
         cached_fetched_at = 0
     now = int(time.time())
     records = cached_records
-    listing_from_cache = bool(records and cached_fetched_at
+    listing_from_cache = bool(validated and records and cached_fetched_at
                               and now - cached_fetched_at <= HR_LIST_CACHE_TTL)
     stale = False
     source_error = None
@@ -776,11 +838,13 @@ def btschool_hr_records(torrents):
         site_db.close()
         if not row:
             return _hr_failure(
-                RuntimeError("BTSchool site is not configured"),
+                RuntimeError(f"{site_key} site is not configured"),
                 hash_cache,
                 source_cache,
+                site_config,
                 records,
                 cached_fetched_at,
+                validated,
             )
         base_url, cookie, user_agent = row
         headers = {
@@ -789,7 +853,7 @@ def btschool_hr_records(torrents):
         }
         if not listing_from_cache:
             request = Request(
-                str(base_url).rstrip("/") + "/myhr.php",
+                str(base_url).rstrip("/") + list_path,
                 headers=headers,
             )
             try:
@@ -915,26 +979,54 @@ def btschool_hr_records(torrents):
             missing_records,
         )
         available = not source_error and not stale
+        if available:
+            validated = True
+            site_cache["validated"] = True
+            site_cache["lastSuccessAt"] = now
+            site_cache.pop("lastError", None)
+        elif validated:
+            site_cache["validated"] = True
+            site_cache["lastError"] = (
+                f"{type(source_error).__name__}: {str(source_error)[:240]}"
+                if source_error
+                else "H&R source is stale"
+            )
+        effective_records = official_records if available else []
+        effective_missing = missing_records if available else []
+        effective_candidates = candidate_hashes if available else set()
         return {
+            "site": site_key,
+            "taskLabel": site_label({"tracker": "https://" + site_key}),
+            "path": list_path,
+            "parser": parser,
+            "configured": True,
+            "validated": bool(validated),
             "available": available,
             "stale": stale,
             "sourceState": (
-                "fresh" if available else ("stale" if records else "partial")
+                "fresh" if available else ("stale" if validated else "unavailable")
             ),
             "error": (
                 f"{type(source_error).__name__}: {str(source_error)[:240]}"
                 if source_error
                 else ""
             ),
-            "activeCount": len(official_records),
-            "activeHashes": active_hashes,
-            "matchedHashes": matched_hashes,
-            "missingCount": len(missing_records),
-            "missingUncoveredCount": len(missing_records) - len(covered_titles),
-            "candidateHashes": candidate_hashes,
+            "activeCount": len(effective_records),
+            "activeHashes": {record["hash"] for record in effective_records},
+            "matchedHashes": (
+                matched_hashes if available else set()
+            ),
+            "missingCount": len(effective_missing),
+            "missingUncoveredCount": (
+                len(effective_missing) - len(covered_titles)
+                if available
+                else 0
+            ),
+            "candidateHashes": effective_candidates,
             "hashCache": hash_cache,
             "sourceCache": source_cache,
             "sourceFetchedAt": cached_fetched_at,
+            "lastSuccessAt": int(site_cache.get("lastSuccessAt") or 0),
             "missingRecords": [
                 {
                     "id": record["id"],
@@ -945,7 +1037,7 @@ def btschool_hr_records(torrents):
                     "qbTaskPresent": record["hash"] in qb_hashes,
                     "videoSizes": list(record["videoSizes"]),
                 }
-                for record in missing_records
+                for record in effective_missing
             ],
         }
     except Exception as error:
@@ -953,9 +1045,131 @@ def btschool_hr_records(torrents):
             error,
             hash_cache,
             source_cache,
+            site_config,
             records,
             cached_fetched_at,
+            validated,
         )
+
+
+def hr_source_matches_task(source, row):
+    if not source:
+        return False
+    domain = str(source.get("site") or "").strip().lower().rstrip(".")
+    tracker_host = urlparse(str(row.get("tracker") or "")).hostname or ""
+    tracker_host = tracker_host.strip().lower().rstrip(".")
+    if domain and (
+        tracker_host == domain
+        or tracker_host.endswith("." + domain)
+        or domain.endswith("." + tracker_host)
+    ):
+        return True
+    return str(source.get("taskLabel") or "") == site_label(row)
+
+
+def configured_hr_records(torrents):
+    """Collect all configured H&R sources, or a disabled empty state."""
+
+    source_cache = HR_SOURCE_CACHE if isinstance(HR_SOURCE_CACHE, dict) else {}
+    source_cache.setdefault("sites", {})
+    source_cache.setdefault("manifests", {})
+    if not HIT_AND_RUN_ENABLED:
+        return {
+            "enabled": False,
+            "configured": 0,
+            "effective": 0,
+            "available": True,
+            "sourceState": "disabled",
+            "error": "",
+            "sources": {},
+            "activeCount": 0,
+            "activeHashes": set(),
+            "matchedHashes": set(),
+            "candidateHashes": set(),
+            "missingCount": 0,
+            "missingUncoveredCount": 0,
+            "missingRecords": [],
+            "hashCache": dict(HR_HASH_CACHE or {}),
+            "sourceCache": source_cache,
+        }
+
+    sources = {}
+    hash_cache = dict(HR_HASH_CACHE or {})
+    missing_records = []
+    for raw_site in HIT_AND_RUN_SITES:
+        if not isinstance(raw_site, dict):
+            continue
+        site = str(raw_site.get("site") or "").strip().lower()
+        if not site:
+            continue
+        source = btschool_hr_records(
+            torrents,
+            {
+                "site": site,
+                "path": str(raw_site.get("path") or ""),
+                "parser": str(raw_site.get("parser") or "nexusphp_myhr"),
+            },
+        )
+        sources[site] = source
+        hash_cache.update(source.get("hashCache") or {})
+        missing_records.extend(source.get("missingRecords") or [])
+    effective_sources = [
+        source
+        for source in sources.values()
+        if source.get("validated") and source.get("available")
+    ]
+    failed_sources = [
+        source
+        for source in sources.values()
+        if source.get("validated") and not source.get("available")
+    ]
+    active_hashes = set()
+    matched_hashes = set()
+    candidate_hashes = set()
+    active_count = 0
+    missing_count = 0
+    for source in effective_sources:
+        active_hashes.update(source.get("activeHashes") or ())
+        matched_hashes.update(source.get("matchedHashes") or ())
+        candidate_hashes.update(source.get("candidateHashes") or ())
+        active_count += int(source.get("activeCount") or 0)
+        missing_count += int(source.get("missingCount") or 0)
+    if not sources:
+        source_state = "unconfigured"
+    elif failed_sources:
+        source_state = "stale" if effective_sources else "unavailable"
+    elif effective_sources:
+        source_state = "fresh"
+    else:
+        source_state = "unavailable"
+    return {
+        "enabled": True,
+        "configured": len(sources),
+        "effective": len(effective_sources),
+        # An absent or never-validated site is not in the protection chain.
+        # A previously validated site that now fails is handled per site by
+        # make_task and the action planner.
+        "available": not failed_sources,
+        "sourceState": source_state,
+        "error": "; ".join(
+            f"{source.get('site')}: {source.get('error')}"
+            for source in failed_sources
+            if source.get("error")
+        )[:1000],
+        "sources": sources,
+        "activeCount": active_count,
+        "activeHashes": active_hashes,
+        "matchedHashes": matched_hashes,
+        "candidateHashes": candidate_hashes,
+        "missingCount": missing_count,
+        "missingUncoveredCount": sum(
+            int(source.get("missingUncoveredCount") or 0)
+            for source in effective_sources
+        ),
+        "missingRecords": missing_records if not failed_sources else [],
+        "hashCache": hash_cache,
+        "sourceCache": source_cache,
+    }
 
 
 def assign_hr_candidates(torrents, official_records):
@@ -992,20 +1206,47 @@ def make_task(
     hr_available,
     publication_hashes=frozenset(),
     hr_unknown_sites=frozenset(),
+    hr_sources=None,
 ):
     site = site_label(row)
     status, tone = task_status(row, publication_hashes)
     self_publish = status == "自发布"
     tags = str(row.get("tags") or "")
-    site_hr = str(row.get("hash") or "").lower() in hr_hashes
-    recovery_candidate = (
-        str(row.get("hash") or "").lower() in hr_candidate_hashes
-    )
-    unsupported_private_site = bool(row.get("private")) and site in hr_unknown_sites
-    hr = "H&R" in tags or "H＆R" in tags or site_hr
-    hr_unknown = recovery_candidate or (
-        site == "学校站" and not hr_available
-    ) or unsupported_private_site
+    task_hash = str(row.get("hash") or "").lower()
+    if hr_sources is not None:
+        source = next(
+            (
+                candidate
+                for candidate in hr_sources.values()
+                if hr_source_matches_task(candidate, row)
+            ),
+            None,
+        )
+        source_ready = bool(
+            source and source.get("validated") and source.get("available")
+        )
+        source_failed = bool(
+            source and source.get("validated") and not source.get("available")
+        )
+        site_hr = bool(
+            source_ready and task_hash in (source.get("activeHashes") or set())
+        )
+        recovery_candidate = bool(
+            source_ready
+            and task_hash in (source.get("candidateHashes") or set())
+        )
+        hr = bool(source_ready and ("H&R" in tags or "H＆R" in tags or site_hr))
+        hr_unknown = bool(
+            source_failed and (row.get("private") or recovery_candidate)
+        )
+    else:
+        site_hr = task_hash in hr_hashes
+        recovery_candidate = task_hash in hr_candidate_hashes
+        unsupported_private_site = bool(row.get("private")) and site in hr_unknown_sites
+        hr = "H&R" in tags or "H＆R" in tags or site_hr
+        hr_unknown = recovery_candidate or (
+            site == "学校站" and not hr_available
+        ) or unsupported_private_site
     if hr:
         status, tone = "H&R 保护", "protected"
     elif hr_unknown:
@@ -1376,39 +1617,31 @@ for row, (
     if from_cache:
         qb_file_lists_cached += 1
 publication_hashes = load_publication_hashes()
-hr_status = btschool_hr_records(torrents)
+hr_status = configured_hr_records(torrents)
 hr_available = bool(hr_status.get("available"))
 hr_hashes = set(hr_status.get("activeHashes") or ())
 hr_matched_hashes = set(hr_status.get("matchedHashes") or ())
 hr_candidate_hashes = set(hr_status.get("candidateHashes") or ())
-private_sites = {
-    site_label(row)
-    for row in torrents
-    if bool(row.get("private"))
-}
-# Only BTSchool currently has an authoritative adapter.  Other private sites
-# are deliberately represented as "待核 H&R" until their own official source
-# is verified; a site label or qB category is never treated as proof of safety.
-hr_unknown_sites = private_sites - {"学校站"}
-hr_sources = {
-    "学校站": {
+hr_sources = hr_status.get("sources") or {}
+hr_unknown_sites = set()
+hr_sources_public = {
+    site: {
+        "site": str(source.get("site") or site),
+        "taskLabel": str(source.get("taskLabel") or site),
+        "path": str(source.get("path") or ""),
+        "parser": str(source.get("parser") or ""),
         "supported": True,
-        "available": hr_available,
-        "stale": bool(hr_status.get("stale")),
-        "state": hr_status.get("sourceState") or "unavailable",
-        "activeCount": int(hr_status.get("activeCount") or 0),
-        "error": str(hr_status.get("error") or ""),
+        "configured": bool(source.get("configured")),
+        "validated": bool(source.get("validated")),
+        "available": bool(source.get("available")),
+        "stale": bool(source.get("stale")),
+        "state": str(source.get("sourceState") or "unavailable"),
+        "activeCount": int(source.get("activeCount") or 0),
+        "lastSuccessAt": int(source.get("lastSuccessAt") or 0),
+        "error": str(source.get("error") or ""),
     }
+    for site, source in hr_sources.items()
 }
-for site in sorted(hr_unknown_sites):
-    hr_sources[site] = {
-        "supported": False,
-        "available": False,
-        "stale": False,
-        "state": "unsupported",
-        "activeCount": 0,
-        "error": "暂无该站官方 H&R 适配器，相关私有任务按待核保护。",
-    }
 group_tasks = defaultdict(list)
 unmatched_groups = {}
 unmatched_tasks = 0
@@ -1486,6 +1719,7 @@ for row in torrents:
             hr_available,
             publication_hashes,
             hr_unknown_sites,
+            hr_sources=hr_sources,
         )
     )
 
@@ -1615,6 +1849,7 @@ for bundle in unmatched_groups.values():
                 hr_available,
                 publication_hashes,
                 hr_unknown_sites,
+                hr_sources=hr_sources,
             )
         )
     hr = any(task["hr"] for task in tasks)
@@ -1707,10 +1942,16 @@ print(
                 "qbFileListsCached": qb_file_lists_cached,
                 "matchedQbTasks": sum(len(tasks) for tasks in group_tasks.values()),
                 "unmatchedQbTasks": unmatched_tasks,
+                "hrEnabled": bool(hr_status.get("enabled")),
+                "hrConfiguredSites": int(hr_status.get("configured") or 0),
+                "hrEffectiveSites": int(hr_status.get("effective") or 0),
                 "hrSourceAvailable": hr_available,
                 "hrSourceState": hr_status.get("sourceState") or "unavailable",
-                "hrSourceStale": bool(hr_status.get("stale")),
-                "hrSources": hr_sources,
+                "hrSourceStale": any(
+                    bool(source.get("stale"))
+                    for source in hr_sources_public.values()
+                ),
+                "hrSources": hr_sources_public,
                 "hrUnsupportedSites": sorted(hr_unknown_sites),
                 "hrUnknownPrivateTasks": sum(
                     task["hr_unknown"]
@@ -1908,11 +2149,38 @@ def sanitize_hr_source_cache(value: object) -> dict:
                     title = str(raw_title or "").strip()
                     if record_id.isdigit() and title and len(title) <= 512:
                         records[record_id] = title
-            if records and fetched_at > 0:
-                result["sites"][site] = {
+            path = str(raw_entry.get("path") or "").strip()
+            parser = str(raw_entry.get("parser") or "nexusphp_myhr").strip()
+            validated = bool(raw_entry.get("validated"))
+            try:
+                last_success_at = int(raw_entry.get("lastSuccessAt") or 0)
+            except (TypeError, ValueError):
+                last_success_at = 0
+            last_error = str(raw_entry.get("lastError") or "").strip()[:240]
+            if (
+                (records and fetched_at > 0)
+                or validated
+                or last_success_at > 0
+                or last_error
+            ):
+                entry = {
                     "records": records,
                     "fetchedAt": fetched_at,
                 }
+                if "path" in raw_entry or "parser" in raw_entry:
+                    entry["path"] = (
+                        path[:512]
+                        if path.startswith("/") and not path.startswith("//")
+                        else ""
+                    )
+                    entry["parser"] = parser[:64]
+                if "validated" in raw_entry:
+                    entry["validated"] = validated
+                if "lastSuccessAt" in raw_entry:
+                    entry["lastSuccessAt"] = last_success_at
+                if last_error:
+                    entry["lastError"] = last_error
+                result["sites"][site] = entry
     manifests = value.get("manifests")
     if isinstance(manifests, dict):
         for raw_key, raw_entry in list(manifests.items())[:5000]:

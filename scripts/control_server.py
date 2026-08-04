@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import secrets
 import socket
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -176,14 +177,54 @@ class ControlState:
             "config": self.config,
             "configPath": str(self.config_path),
             "probe": probe_config(self.config),
+            "hitAndRunSites": self.moviepilot_sites(),
         }
+
+    def moviepilot_sites(self) -> list[dict[str, str]]:
+        """Return active MoviePilot site identities without exposing credentials."""
+
+        database = Path(self.config["moviepilot_db"])
+        if not database.is_file() or database.is_symlink():
+            return []
+        try:
+            connection = sqlite3.connect(
+                f"file:{database}?mode=ro",
+                uri=True,
+                timeout=5,
+            )
+            columns = {
+                str(row[1])
+                for row in connection.execute("pragma table_info('site')")
+            }
+            if not {"domain", "is_active"}.issubset(columns):
+                connection.close()
+                return []
+            rows = connection.execute(
+                "select domain from site where is_active=1 "
+                "and domain is not null order by domain"
+            ).fetchall()
+            connection.close()
+        except (OSError, sqlite3.Error):
+            return []
+        result: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for row in rows:
+            domain = str(row[0] or "").strip().lower().rstrip(".")
+            if not domain or domain in seen:
+                continue
+            seen.add(domain)
+            result.append({"site": domain, "label": domain})
+        return result
 
     def update_config(self, request: dict[str, Any]) -> dict[str, Any]:
         raw_config = request.get("config")
         if not isinstance(raw_config, dict):
             raise ApiError(400, "invalid_config", "配置必须是 JSON 对象。")
         try:
-            next_config = normalize_config(raw_config)
+            # Keep newly introduced optional settings (notably H&R) when an
+            # older discovery client submits only the topology fields.
+            merged_config = {**self.config, **raw_config}
+            next_config = normalize_config(merged_config)
             probe = probe_config(next_config)
         except ConfigurationError as exc:
             raise ApiError(400, "invalid_config", str(exc)) from exc
@@ -804,6 +845,9 @@ def handler_class(state: ControlState):
                             "runtimeMode": state.runtime_mode,
                             "hostName": state.host_name,
                             "configReady": config_probe["ok"],
+                            "hitAndRunEnabled": bool(
+                                state.config.get("hit_and_run_enabled", False)
+                            ),
                             "configFingerprint": config_fingerprint(state.config),
                         },
                         origin=self._origin(),
