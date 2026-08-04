@@ -73,6 +73,7 @@ _CONFIG_DEFAULT = {
         "/path/to/media/movies",
         "/path/to/media/tv",
     ],
+    "hardlink_discovery_roots": [],
     "publication_ledger_roots": [],
 }
 CONFIG = globals().get("__PINAS_CONFIG__", {}) or _CONFIG_DEFAULT
@@ -100,7 +101,14 @@ VIDEO_EXTENSIONS = {
 }
 SEASON_RE = re.compile(r"(?i)(?:^|[ ._\-/])S(?:eason[ ._-]*)?(\d{1,2})(?:[ ._\-/]|$)")
 ALLOWED_ROOTS = tuple(CONFIG["allowed_roots"])
-HARDLINK_DISCOVERY_ROOTS = ALLOWED_ROOTS
+HARDLINK_DISCOVERY_ROOTS = tuple(
+    dict.fromkeys(
+        (
+            *CONFIG["allowed_roots"],
+            *(CONFIG.get("hardlink_discovery_roots") or ()),
+        )
+    )
+)
 HR_HASH_CACHE = __HR_HASH_CACHE__
 HR_SOURCE_CACHE = __HR_SOURCE_CACHE__
 QB_FILE_CACHE = __QB_FILE_CACHE__
@@ -297,6 +305,11 @@ def hardlink_path_index():
                     candidate = current / name
                     try:
                         if not candidate.is_symlink():
+                            if candidate in QUARANTINE_ROOTS:
+                                # The transaction quarantine holds staged
+                                # copies of files pending commit; it must
+                                # never be treated as a hard-link location.
+                                continue
                             safe_directories.append(name)
                     except OSError:
                         verified = False
@@ -1363,10 +1376,14 @@ def private_record(
     cleanup_paths_by_inode = defaultdict(set)
     cleanup_expected_links = {}
     for path, source in sorted(cleanup_candidates.items()):
+        allowed = is_allowed_path(path)
         record = {
             "path": path,
             "source": source,
-            "allowed": is_allowed_path(path),
+            "allowed": allowed,
+            "legacyQuarantine": (
+                not allowed and "/.media-quarantine/" in str(path)
+            ),
             "exists": False,
             "regular": False,
             "relativeSafe": True,

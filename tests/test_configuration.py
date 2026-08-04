@@ -107,6 +107,96 @@ class ConfigurationTests(unittest.TestCase):
             self.assertTrue(quarantine_entry["missingAllowed"])
             self.assertFalse(quarantine.exists())
 
+    def _volume_config(self, root: Path) -> dict:
+        volume = root / "volume"
+        allowed = volume / "downloads"
+        quarantine = volume / ".quarantine"
+        qb_backup = volume / "qb-backup"
+        execution_backup = volume / "execution-backup"
+        for directory in (allowed, qb_backup, execution_backup):
+            directory.mkdir(parents=True)
+        jellyfin_db = root / "jellyfin.db"
+        moviepilot_db = root / "moviepilot.db"
+        jellyfin_db.write_text("", encoding="utf-8")
+        moviepilot_db.write_text("", encoding="utf-8")
+        config = default_config()
+        config.update(
+            {
+                "jellyfin_db": str(jellyfin_db),
+                "moviepilot_db": str(moviepilot_db),
+                "qb_backup": str(qb_backup),
+                "execution_backup": str(execution_backup),
+                "allowed_roots": [str(allowed)],
+                "quarantine_roots": {str(volume): str(quarantine)},
+            }
+        )
+        return config
+
+    def test_hardlink_discovery_roots_default_to_empty_and_normalize(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = self._volume_config(Path(temporary))
+            self.assertEqual(config["hardlink_discovery_roots"], [])
+            normalized = normalize_config(config)
+            self.assertEqual(normalized["hardlink_discovery_roots"], [])
+
+    def test_probe_tolerates_missing_hardlink_discovery_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = self._volume_config(root)
+            missing_discovery = root / "volume/.media-quarantine"
+            config["hardlink_discovery_roots"] = [str(missing_discovery)]
+
+            result = probe_config(config)
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["missing"], [])
+            entry = next(
+                item for item in result["entries"]
+                if item["kind"] == "hardlink_discovery_root"
+            )
+            self.assertFalse(entry["exists"])
+            self.assertTrue(entry["missingAllowed"])
+
+    def test_probe_reports_non_directory_discovery_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = self._volume_config(root)
+            file_discovery = root / "volume/not-a-directory"
+            file_discovery.write_text("", encoding="utf-8")
+            config["hardlink_discovery_roots"] = [str(file_discovery)]
+
+            result = probe_config(config)
+
+            self.assertFalse(result["ok"])
+            self.assertTrue(
+                any("硬链接发现根不是目录" in item for item in result["problems"])
+            )
+
+    def test_hardlink_discovery_root_outside_volume_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = self._volume_config(root)
+            config["hardlink_discovery_roots"] = [
+                str(root / "elsewhere/quarantine")
+            ]
+            with self.assertRaises(ConfigurationError):
+                normalize_config(config)
+
+    def test_hardlink_discovery_root_cannot_cover_transaction_quarantine(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = self._volume_config(root)
+            nested = root / "volume/nested"
+            nested.mkdir()
+            config["quarantine_roots"] = {
+                str(root / "volume"): str(nested / ".quarantine")
+            }
+            config["hardlink_discovery_roots"] = [
+                str(nested)  # would cover nested/.quarantine
+            ]
+            with self.assertRaises(ConfigurationError):
+                normalize_config(config)
+
 
 if __name__ == "__main__":
     unittest.main()

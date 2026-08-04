@@ -357,7 +357,10 @@ def build_plan(
                     str(item.get("path") or ""),
                     allowed_roots=allowed_roots,
                 )
-                or not item.get("allowed")
+                or (
+                    not item.get("allowed")
+                    and not item.get("legacyQuarantine")
+                )
                 for item in existing_files
             ):
                 _add_reason(
