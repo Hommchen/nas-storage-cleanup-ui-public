@@ -196,6 +196,107 @@ class MediaMetadataTests(unittest.TestCase):
         self.assertEqual(merged[0]["seedTasks"][0]["status"], "做种中")
         self.assertEqual(merged[0]["seedTasks"][0]["tone"], "normal")
 
+    def test_tv_episode_completeness_flags_incomplete_library(self):
+        resource = raw_resource(
+            resource_id="res_tv",
+            title="示例剧集",
+            english="Example Series",
+            edition="S01 · 2/6 集",
+            media_type="电视剧",
+            private=private_record(
+                identity="tv:tmdb:224372",
+                task_hash="c" * 40,
+                path="/allowed/tv/s01/e01.mkv",
+                inode=125,
+                scope="S01",
+            ),
+            library=True,
+        )
+        resource.update(
+            {
+                "episodeActual": 2,
+                "episodeExpected": 6,
+                "episodeMissing": 4,
+                "episodeIncomplete": True,
+                "episodeStatus": "incomplete",
+            }
+        )
+
+        merged, _ = enrich_and_merge_resources([resource], {})
+
+        self.assertTrue(merged[0]["episodeIncomplete"])
+        self.assertEqual(merged[0]["episodeStatus"], "incomplete")
+        self.assertEqual(merged[0]["episodeActual"], 2)
+        self.assertEqual(merged[0]["episodeExpected"], 6)
+        self.assertEqual(merged[0]["episodeMissing"], 4)
+        self.assertEqual(merged[0]["edition"], "S01 · 2/6 集")
+
+    def test_tv_episode_completeness_marks_complete_when_expected_met(self):
+        resource = raw_resource(
+            resource_id="res_tv_full",
+            title="完整剧集",
+            english="Full Series",
+            edition="S01 · 6/6 集",
+            media_type="电视剧",
+            private=private_record(
+                identity="tv:tmdb:224372",
+                task_hash="d" * 40,
+                path="/allowed/tv/s01/e01.mkv",
+                inode=126,
+                scope="S01",
+            ),
+            library=True,
+        )
+        resource.update(
+            {
+                "episodeActual": 6,
+                "episodeExpected": 6,
+                "episodeMissing": 0,
+                "episodeIncomplete": False,
+                "episodeStatus": "complete",
+            }
+        )
+
+        merged, _ = enrich_and_merge_resources([resource], {})
+
+        self.assertFalse(merged[0]["episodeIncomplete"])
+        self.assertEqual(merged[0]["episodeStatus"], "complete")
+        self.assertIsNone(merged[0]["episodeMissing"])
+        self.assertEqual(merged[0]["edition"], "S01 · 6/6 集")
+
+    def test_tv_episode_completeness_stays_unknown_without_expected(self):
+        resource = raw_resource(
+            resource_id="res_tv_unknown",
+            title="未知集数剧集",
+            english="Unknown Episodes",
+            edition="S01 · 2 集",
+            media_type="电视剧",
+            private=private_record(
+                identity="tv:tmdb:224372",
+                task_hash="e" * 40,
+                path="/allowed/tv/s01/e01.mkv",
+                inode=127,
+                scope="S01",
+            ),
+            library=True,
+        )
+        resource.update(
+            {
+                "episodeActual": 2,
+                "episodeExpected": None,
+                "episodeMissing": None,
+                "episodeIncomplete": False,
+                "episodeStatus": "",
+            }
+        )
+
+        merged, _ = enrich_and_merge_resources([resource], {})
+
+        self.assertFalse(merged[0]["episodeIncomplete"])
+        self.assertEqual(merged[0]["episodeStatus"], "")
+        self.assertIsNone(merged[0]["episodeExpected"])
+        self.assertEqual(merged[0]["edition"], "S01 · 2 集")
+
     def test_clear_chinese_title_does_not_require_duplicate_english_name(self):
         resource = raw_resource(
             resource_id="res_xmen",

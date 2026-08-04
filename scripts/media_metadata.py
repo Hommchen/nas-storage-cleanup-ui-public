@@ -1250,11 +1250,42 @@ def _merge_group(
     for task in qb_tasks:
         seasons.update(_season_numbers(task.get("scope")))
     season_text = _season_label(seasons)
-    episode_count = 0
-    for item in library_items:
-        match = re.search(r"(\d+)\s*集", str(item.get("edition") or ""))
-        if match:
-            episode_count = max(episode_count, int(match.group(1)))
+    episode_values = []
+    for item in items:
+        value = item.get("episodeActual")
+        if value is None:
+            continue
+        try:
+            episode_values.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    episode_actual = max(episode_values) if episode_values else 0
+    expected_values = set()
+    for item in items:
+        value = item.get("episodeExpected")
+        if value is None:
+            continue
+        try:
+            expected_values.add(int(value))
+        except (TypeError, ValueError):
+            continue
+    episode_expected = max(expected_values) if expected_values else None
+    episode_incomplete = (
+        episode_expected is not None
+        and 0 < episode_actual < episode_expected
+    )
+    episode_missing = (
+        episode_expected - episode_actual
+        if episode_incomplete
+        else 0
+    )
+    episode_status = (
+        "incomplete"
+        if episode_incomplete
+        else "complete"
+        if episode_expected is not None and episode_actual >= episode_expected
+        else ""
+    )
     media_kind = (
         "tv"
         if identity.startswith("tv:")
@@ -1269,11 +1300,12 @@ def _merge_group(
             edition = str(primary["edition"])
         else:
             edition = season_text or "季数待识别"
-            edition += (
-                f" · {episode_count} 集"
-                if episode_count
-                else " · 未入库"
-            )
+            if episode_expected is not None:
+                edition += f" · {episode_actual}/{episode_expected} 集"
+            elif episode_actual:
+                edition += f" · {episode_actual} 集"
+            else:
+                edition += " · 未入库"
     else:
         edition = "电影" if library_items else "下载区资源 · 未入库"
     inode_sizes: dict[tuple[int, int], int] = {}
@@ -1392,6 +1424,11 @@ def _merge_group(
         "title": title,
         "englishTitle": english_title,
         "edition": edition,
+        "episodeActual": episode_actual or None,
+        "episodeExpected": episode_expected,
+        "episodeMissing": episode_missing or None,
+        "episodeIncomplete": episode_incomplete,
+        "episodeStatus": episode_status,
         "type": "电视剧" if media_kind == "tv" else "电影",
         "year": next(
             (
