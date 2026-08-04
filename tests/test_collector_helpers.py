@@ -542,6 +542,23 @@ class CollectorHelperTests(unittest.TestCase):
             14,
         )
 
+    def test_tmdb_api_key_falls_back_to_moviepilot_builtin_default(self):
+        default = helpers["DEFAULT_TMDB_API_KEY"]
+        self.assertEqual(helpers["tmdb_api_key"](""), default)
+        self.assertEqual(helpers["tmdb_api_key"]("# no key here\n\n"), default)
+        self.assertEqual(
+            helpers["tmdb_api_key"]("TMDB_API_KEY=\nPROXY_HOST=http://x"),
+            default,
+        )
+
+    def test_tmdb_api_key_prefers_explicit_env_value(self):
+        self.assertEqual(
+            helpers["tmdb_api_key"](
+                "PROXY_HOST=http://127.0.0.1:11082\nTMDB_API_KEY=abc123\n"
+            ),
+            "abc123",
+        )
+
     def test_tv_expected_total_returns_none_without_cache_or_tmdb_identity(self):
         self.assertIsNone(
             helpers["tv_expected_total"](
