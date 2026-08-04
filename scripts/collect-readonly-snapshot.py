@@ -54,7 +54,7 @@ import re
 import sqlite3
 import time
 from urllib.parse import quote, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
 _CONFIG_DEFAULT = {
     "jellyfin_db": "/var/lib/jellyfin/data/jellyfin.db",
@@ -100,6 +100,9 @@ VIDEO_EXTENSIONS = {
     ".webm",
 }
 SEASON_RE = re.compile(r"(?i)(?:^|[ ._\-/])S(?:eason[ ._-]*)?(\d{1,2})(?:[ ._\-/]|$)")
+EPISODE_RE = re.compile(
+    r"(?i)(?:S\d{1,2}|^|[ ._\-/])E(\d{1,3})(?:[ ._\-/]|$)"
+)
 ALLOWED_ROOTS = tuple(CONFIG["allowed_roots"])
 HARDLINK_DISCOVERY_ROOTS = tuple(
     dict.fromkeys(
@@ -112,6 +115,7 @@ HARDLINK_DISCOVERY_ROOTS = tuple(
 HR_HASH_CACHE = __HR_HASH_CACHE__
 HR_SOURCE_CACHE = __HR_SOURCE_CACHE__
 QB_FILE_CACHE = __QB_FILE_CACHE__
+TMDB_SEASON_CACHE = __TMDB_CACHE__
 HIT_AND_RUN_ENABLED = bool(CONFIG.get("hit_and_run_enabled", False))
 HIT_AND_RUN_SITES = tuple(CONFIG.get("hit_and_run_sites") or ())
 DEFAULT_PUBLICATION_LEDGER_ROOT = Path(
@@ -387,6 +391,81 @@ def inode_info(path):
         "nlink": int(stat.st_nlink),
         "path": str(path),
     }
+
+
+def tmdb_season_counts(tmdb_id):
+    """Return {season_number: episode_count} for a TMDB series, or None.
+
+    The API key is read from the MoviePilot app.env next to its user.db and
+    is only used for this request; it is never printed or persisted.  The
+    request goes through the MoviePilot proxy when app.env configures one.
+    """
+    env_path = Path(MOVIEPILOT_DB).parent / "app.env"
+    api_key = None
+    proxy = None
+    try:
+        for raw in env_path.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines():
+            line = raw.strip()
+            if line.startswith("TMDB_API_KEY="):
+                api_key = line.split("=", 1)[1].strip()
+            elif line.startswith("PROXY_HOST="):
+                proxy = line.split("=", 1)[1].strip()
+    except OSError:
+        return None
+    if not api_key:
+        return None
+    url = (
+        "https://api.themoviedb.org/3/tv/"
+        + quote(str(tmdb_id), safe="")
+        + "?api_key="
+        + quote(api_key, safe="")
+        + "&language=zh-CN"
+    )
+    try:
+        opener = (
+            build_opener(ProxyHandler({"http": proxy, "https": proxy}))
+            if proxy
+            else build_opener()
+        )
+        with opener.open(url, timeout=20) as response:
+            payload = json.load(response)
+    except Exception:
+        return None
+    counts = {}
+    for season in payload.get("seasons") or []:
+        try:
+            number = int(season.get("season_number") or 0)
+            count = int(season.get("episode_count") or 0)
+        except (TypeError, ValueError):
+            continue
+        if number >= 1 and count > 0:
+            counts[number] = count
+    return counts or None
+
+
+def tv_expected_total(identity, episodes, tmdb_cache):
+    """Total regular episodes expected for a TV group, or None when unknown."""
+    if not identity.startswith("tv:tmdb:"):
+        return None
+    tmdb_id = identity.split(":", 2)[2]
+    seasons = {season for season, _ in episodes}
+    if not seasons:
+        return None
+    counts = tmdb_cache.get(tmdb_id)
+    if counts is None:
+        counts = tmdb_season_counts(tmdb_id)
+        if counts is not None:
+            tmdb_cache[tmdb_id] = counts
+    if not counts:
+        return None
+    total = sum(
+        int(count)
+        for season_number, count in counts.items()
+        if season_number in seasons
+    )
+    return total if total > 0 else None
 
 
 def site_label(row):
@@ -1530,6 +1609,7 @@ for row in top_items:
             "files": [],
             "seasons": set(),
             "episode_count": 0,
+            "episodes": set(),
         },
     )
     group["names"].append(row["Name"])
@@ -1546,7 +1626,8 @@ for row in top_items:
         group["files"].extend(video_files(row["Path"]))
 
 for row in db.execute(
-    "select SeriesId, Path, Size, ParentIndexNumber from BaseItems "
+    "select SeriesId, Path, Size, ParentIndexNumber, IndexNumber "
+    "from BaseItems "
     "where Type=? and IsVirtualItem=0 and Path is not null",
     (EPISODE,),
 ):
@@ -1556,13 +1637,25 @@ for row in db.execute(
     group = groups[key]
     path = Path(str(row["Path"]))
     group["files"].append(path)
-    group["episode_count"] += 1
     season = row["ParentIndexNumber"]
     if season is None:
         match = SEASON_RE.search(str(path))
         season = int(match.group(1)) if match else None
+    episode_number = row["IndexNumber"]
+    if episode_number is None:
+        match = EPISODE_RE.search(str(path))
+        episode_number = int(match.group(1)) if match else None
+    # Regular episodes only: specials (season 0) and rows without a usable
+    # episode number never count towards completeness.
+    if (
+        season is not None
+        and int(season) >= 1
+        and episode_number is not None
+    ):
+        group["episodes"].add((int(season), int(episode_number)))
     if season is not None:
         group["seasons"].add(int(season))
+    group["episode_count"] = len(group["episodes"])
 
 moviepilot_rows, moviepilot_index_source_available = moviepilot_media_index_rows()
 moviepilot_by_item_id = defaultdict(list)
@@ -1774,13 +1867,45 @@ for group in groups.values():
     if group["media_type"] == "tv":
         seasons = sorted(group["seasons"])
         season_text = season_label(seasons, seasons) if seasons else "季数待识别"
-        edition = f"{season_text} · {group['episode_count']} 集"
+        episode_actual = len(group["episodes"])
+        episode_expected = tv_expected_total(
+            group["key"],
+            group["episodes"],
+            TMDB_SEASON_CACHE,
+        )
+        episode_incomplete = (
+            episode_expected is not None
+            and 0 < episode_actual < episode_expected
+        )
+        episode_missing = (
+            episode_expected - episode_actual
+            if episode_incomplete
+            else 0
+        )
+        if episode_expected is None:
+            edition = f"{season_text} · {episode_actual} 集"
+            library_detail = f"Jellyfin 可播放 · {episode_actual} 集"
+            episode_status = ""
+        else:
+            edition = (
+                f"{season_text} · {episode_actual}/{episode_expected} 集"
+            )
+            library_detail = (
+                f"Jellyfin 可播放 · {episode_actual}/{episode_expected} 集"
+            )
+            episode_status = (
+                "incomplete" if episode_incomplete else "complete"
+            )
         library_summary = f"已入库 · {len(seasons)} 季" if seasons else "已入库"
-        library_detail = f"Jellyfin 可播放 · {group['episode_count']} 集"
     else:
         edition = "电影"
         library_summary = "已入库"
         library_detail = "Jellyfin 可播放"
+        episode_actual = None
+        episode_expected = None
+        episode_missing = None
+        episode_incomplete = False
+        episode_status = ""
     if tasks:
         impact_title = f"同时影响 {len(tasks)} 个 qB / PT 任务"
         impact_detail = "、".join(f"{task['site']} {task['scope']}" for task in tasks[:4])
@@ -1796,6 +1921,11 @@ for group in groups.values():
             "title": title,
             "englishTitle": english,
             "edition": edition,
+            "episodeActual": episode_actual,
+            "episodeExpected": episode_expected,
+            "episodeMissing": episode_missing,
+            "episodeIncomplete": episode_incomplete,
+            "episodeStatus": episode_status,
             "type": "电视剧" if group["media_type"] == "tv" else "电影",
             "year": str(year),
             "monogram": "",
@@ -1896,6 +2026,11 @@ for bundle in unmatched_groups.values():
             "title": title,
             "englishTitle": english,
             "edition": edition,
+            "episodeActual": None,
+            "episodeExpected": None,
+            "episodeMissing": None,
+            "episodeIncomplete": False,
+            "episodeStatus": "",
             "type": "电视剧" if media_type == "tv" else "电影",
             "year": "",
             "monogram": "",
@@ -1992,6 +2127,7 @@ print(
             "_hrSourceCache": hr_status["sourceCache"],
             "_hrMissingRecords": hr_status["missingRecords"],
             "_qbFileCache": next_qb_file_cache,
+            "_tmdbCache": TMDB_SEASON_CACHE,
             "_unresolvedTransactionIds": unresolved_plan_ids,
             "resources": resources,
         },
@@ -2050,6 +2186,13 @@ def parse_args() -> argparse.Namespace:
         default=Path(__file__).resolve().parents[1]
         / ".runtime/qb-file-cache.json",
         help="Private cache of immutable completed-torrent file lists.",
+    )
+    parser.add_argument(
+        "--tmdb-cache",
+        type=Path,
+        default=Path(__file__).resolve().parents[1]
+        / ".runtime/tmdb-season-cache.json",
+        help="Private cache of TMDB season episode counts.",
     )
     parser.add_argument(
         "--metadata-cache",
@@ -2139,6 +2282,28 @@ def sanitize_qb_file_cache(value: object) -> dict[str, list[dict]]:
             return {}
         if items:
             result[task_hash] = items
+    return result
+
+
+def sanitize_tmdb_cache(value: object) -> dict[str, dict[int, int]]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, dict[int, int]] = {}
+    for raw_key, raw_counts in list(value.items())[:2000]:
+        key = str(raw_key)
+        if not key.isdigit() or not isinstance(raw_counts, dict):
+            continue
+        counts: dict[int, int] = {}
+        for raw_season, raw_count in raw_counts.items():
+            try:
+                season = int(raw_season)
+                count = int(raw_count)
+            except (TypeError, ValueError):
+                continue
+            if season >= 1 and 0 < count <= 10000:
+                counts[season] = count
+        if counts:
+            result[key] = counts
     return result
 
 
@@ -2277,6 +2442,12 @@ def main() -> int:
             qb_file_cache = sanitize_qb_file_cache(json.load(handle))
     except (OSError, json.JSONDecodeError):
         pass
+    tmdb_cache = {}
+    try:
+        with args.tmdb_cache.open(encoding="utf-8") as handle:
+            tmdb_cache = sanitize_tmdb_cache(json.load(handle))
+    except (OSError, json.JSONDecodeError):
+        pass
     metadata_cache: dict = {"version": 1, "entries": {}}
     try:
         with args.metadata_cache.open(encoding="utf-8") as handle:
@@ -2300,6 +2471,10 @@ def main() -> int:
     ).replace(
         "__QB_FILE_CACHE__",
         repr(qb_file_cache),
+        1,
+    ).replace(
+        "__TMDB_CACHE__",
+        repr(tmdb_cache),
         1,
     )
     collector_command = (
@@ -2332,6 +2507,7 @@ def main() -> int:
     raw_hr_source_cache = raw_payload.pop("_hrSourceCache", {})
     raw_hr_missing_records = raw_payload.pop("_hrMissingRecords", [])
     raw_qb_file_cache = raw_payload.pop("_qbFileCache", {})
+    raw_tmdb_cache = raw_payload.pop("_tmdbCache", {})
     raw_unresolved_transaction_ids = raw_payload.pop(
         "_unresolvedTransactionIds",
         [],
@@ -2351,6 +2527,7 @@ def main() -> int:
         else {}
     )
     next_qb_file_cache = sanitize_qb_file_cache(raw_qb_file_cache)
+    next_tmdb_cache = sanitize_tmdb_cache(raw_tmdb_cache)
     next_hr_source_cache = sanitize_hr_source_cache(raw_hr_source_cache)
     hr_metadata_resources = make_hr_metadata_resources(
         raw_hr_missing_records
@@ -2455,6 +2632,7 @@ def main() -> int:
     write_json_atomic(args.hr_cache, next_hr_hash_cache, 0o600)
     write_json_atomic(args.hr_source_cache, next_hr_source_cache, 0o600)
     write_json_atomic(args.qb_file_cache, next_qb_file_cache, 0o600)
+    write_json_atomic(args.tmdb_cache, next_tmdb_cache, 0o600)
     write_json_atomic(args.metadata_cache, metadata_cache, 0o600)
     print(
         json.dumps(

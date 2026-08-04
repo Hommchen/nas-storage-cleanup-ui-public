@@ -25,6 +25,7 @@ HELPERS_SOURCE = REMOTE_COLLECTOR.split(
 )[0].replace("__HR_HASH_CACHE__", "{}")
 HELPERS_SOURCE = HELPERS_SOURCE.replace("__HR_SOURCE_CACHE__", "{}")
 HELPERS_SOURCE = HELPERS_SOURCE.replace("__QB_FILE_CACHE__", "{}")
+HELPERS_SOURCE = HELPERS_SOURCE.replace("__TMDB_CACHE__", "{}")
 helpers: dict[str, object] = {}
 exec(compile(HELPERS_SOURCE, "<collector-helpers>", "exec"), helpers)
 
@@ -522,6 +523,59 @@ class CollectorHelperTests(unittest.TestCase):
             inode = (media.stat().st_dev, media.stat().st_ino)
             self.assertEqual(index[inode], {str(media)})
             self.assertNotIn(str(staged), index[inode])
+
+    def test_tv_expected_total_uses_cached_tmdb_season_counts(self):
+        self.assertEqual(
+            helpers["tv_expected_total"](
+                "tv:tmdb:224372",
+                {(1, 1), (1, 2)},
+                {"224372": {1: 6}},
+            ),
+            6,
+        )
+        self.assertEqual(
+            helpers["tv_expected_total"](
+                "tv:tmdb:224372",
+                {(1, 1), (2, 1)},
+                {"224372": {1: 6, 2: 8}},
+            ),
+            14,
+        )
+
+    def test_tv_expected_total_returns_none_without_cache_or_tmdb_identity(self):
+        self.assertIsNone(
+            helpers["tv_expected_total"](
+                "tv:tmdb:999999",
+                {(1, 1)},
+                {"224372": {1: 6}},
+            )
+        )
+        self.assertIsNone(
+            helpers["tv_expected_total"](
+                "movie:tmdb:123456",
+                {(1, 1)},
+                {"123456": {1: 6}},
+            )
+        )
+        self.assertIsNone(
+            helpers["tv_expected_total"](
+                "tv:tmdb:224372",
+                set(),
+                {"224372": {1: 6}},
+            )
+        )
+
+    def test_episode_regex_extracts_regular_episode_numbers_only(self):
+        match = helpers["EPISODE_RE"].search(
+            "/media/TV/示例 - S01E03 - 第 3 集.mkv"
+        )
+        self.assertEqual(match.group(1), "03")
+        self.assertIsNone(
+            helpers["EPISODE_RE"].search("/media/TV/示例 - S01 - 全季.mkv")
+        )
+        self.assertIsNone(
+            helpers["EPISODE_RE"].search("/media/TV/示例.mkv")
+        )
 
     def test_unresolved_transactions_include_nonterminal_state_and_quarantine(self):
         with tempfile.TemporaryDirectory() as temporary:
