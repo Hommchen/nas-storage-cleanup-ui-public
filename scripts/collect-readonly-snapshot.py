@@ -629,18 +629,24 @@ def is_regular_episode(season, episode_number):
 
 
 def episode_gaps(episodes):
-    """Return holes between observed regular episode numbers by season."""
+    """Return missing episode numbers before/between observed episodes.
+
+    A library containing only S01E05 is also an explicit local gap: the
+    numbered season starts at E01, so E01-E04 are absent even when no trusted
+    provider identity is available.  Do not infer a tail (future episodes)
+    without an authoritative expected set.
+    """
     by_season = defaultdict(set)
     for season, episode in episodes:
         if is_regular_episode(season, episode):
             by_season[int(season)].add(int(episode))
     gaps = set()
     for season, numbers in by_season.items():
-        if len(numbers) < 2:
+        if not numbers:
             continue
         gaps.update(
             (season, episode)
-            for episode in range(min(numbers), max(numbers) + 1)
+            for episode in range(1, max(numbers) + 1)
             if episode not in numbers
         )
     return gaps

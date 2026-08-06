@@ -554,6 +554,12 @@ class CollectorHelperTests(unittest.TestCase):
             {(1, 2)},
         )
 
+    def test_episode_gaps_include_missing_leading_episodes(self):
+        self.assertEqual(
+            helpers["episode_gaps"]({(1, 5)}),
+            {(1, 1), (1, 2), (1, 3), (1, 4)},
+        )
+
     def test_cached_metadata_identity_is_used_for_providerless_tv(self):
         helpers["TMDB_METADATA_HINTS"] = [
             {
