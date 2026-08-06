@@ -419,7 +419,7 @@ class MediaMetadataTests(unittest.TestCase):
     def test_duplicate_display_rows_share_tv_completeness_without_merging_cleanup_records(self):
         first = raw_resource(
             resource_id="res_cohort_a",
-            title="悬案",
+            title="Unsettled Case",
             english="Unsettled Case",
             edition="S01 · 9/17 集",
             media_type="电视剧",

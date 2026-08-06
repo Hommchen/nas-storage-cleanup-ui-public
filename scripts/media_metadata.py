@@ -1560,7 +1560,7 @@ def _merge_group(
     return result
 
 
-def _episode_cohort_key(item: dict[str, Any]) -> tuple[str, str, str] | None:
+def _episode_cohort_keys(item: dict[str, Any]) -> list[tuple[str, str]]:
     """Return a conservative display key for duplicate TV library rows.
 
     Jellyfin can expose one season through multiple provider-less series
@@ -1571,7 +1571,7 @@ def _episode_cohort_key(item: dict[str, Any]) -> tuple[str, str, str] | None:
     """
 
     if _media_kind(item) != "tv" or not item.get("library"):
-        return None
+        return []
     title = _clean_text(item.get("title"), maximum=300)
     english = _clean_text(item.get("englishTitle"), maximum=300)
     title = re.sub(r"[\s([（._-]*(?:19|20)\d{2}[\])）]?$", "", title)
@@ -1582,9 +1582,12 @@ def _episode_cohort_key(item: dict[str, Any]) -> tuple[str, str, str] | None:
     )
     title_key = _release_normalized(title)
     english_key = _release_normalized(english)
-    if not title_key and not english_key:
-        return None
-    return ("tv", title_key, english_key or title_key)
+    keys: list[tuple[str, str]] = []
+    if english_key:
+        keys.append(("english", english_key))
+    if title_key:
+        keys.append(("title", title_key))
+    return list(dict.fromkeys(keys))
 
 
 def _overlay_tv_episode_cohorts(resources: list[dict[str, Any]]) -> None:
@@ -1595,12 +1598,12 @@ def _overlay_tv_episode_cohorts(resources: list[dict[str, Any]]) -> None:
     union is complete, while preserving the existing identity-conflict lock.
     """
 
-    cohorts: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    cohorts: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for item in resources:
         if not item.get("episodePresentEpisodes"):
             continue
-        key = _episode_cohort_key(item)
-        if key is not None:
+        keys = _episode_cohort_keys(item)
+        for key in keys:
             cohorts[key].append(item)
     for items in cohorts.values():
         if len(items) < 2:
