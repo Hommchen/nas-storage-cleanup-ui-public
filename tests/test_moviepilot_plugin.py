@@ -55,7 +55,7 @@ class MoviePilotPluginTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["StorageCleanup"]["system_version"], ">=2.14.6")
-        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.16")
+        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.17")
         self.assertIn("自动发现 MoviePilot", manifest["StorageCleanup"]["description"])
         self.assertIn(
             "一键清理全链路耦合",
