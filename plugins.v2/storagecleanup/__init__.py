@@ -16,7 +16,7 @@ class StorageCleanup(_PluginBase):
     plugin_name = "存储清理"
     plugin_desc = "一键清理全链路耦合：自动发现 MoviePilot、qB、媒体目录与硬链接关系，联动核验做种、H&R 后安全释放空间。无特定媒体服务器也能使用。需先部署 NAS 清理台服务。"
     plugin_icon = "https://raw.githubusercontent.com/Hommchen/nas-storage-cleanup-ui-public/main/public/storagecleanup.svg"
-    plugin_version = "1.0.16"
+    plugin_version = "1.0.17"
     plugin_author = "Hommchen"
     author_url = "https://github.com/Hommchen/nas-storage-cleanup-ui-public"
     plugin_config_prefix = "storagecleanup_"
@@ -40,7 +40,7 @@ class StorageCleanup(_PluginBase):
 
     @staticmethod
     def get_render_mode() -> Tuple[str, str]:
-        return "vue", "dist/v1.0.16/assets"
+        return "vue", "dist/v1.0.17/assets"
 
     @staticmethod
     def get_form() -> Tuple[List[dict], Dict[str, Any]]:
