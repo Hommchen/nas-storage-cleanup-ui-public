@@ -26,6 +26,7 @@ try:
     from configuration import (
         ConfigurationError,
         config_fingerprint,
+        discover_config,
         load_config,
         normalize_config,
         probe_config,
@@ -35,6 +36,7 @@ except ModuleNotFoundError:
     from scripts.configuration import (
         ConfigurationError,
         config_fingerprint,
+        discover_config,
         load_config,
         normalize_config,
         probe_config,
@@ -179,6 +181,9 @@ class ControlState:
             "probe": probe_config(self.config),
             "hitAndRunSites": self.moviepilot_sites(),
         }
+
+    def discover(self) -> dict[str, Any]:
+        return discover_config(self.config, project_root=self.project_root)
 
     def moviepilot_sites(self) -> list[dict[str, str]]:
         """Return active MoviePilot site identities without exposing credentials."""
@@ -880,6 +885,14 @@ def handler_class(state: ControlState):
                     self._send_json(
                         200,
                         {"ok": True, **state.config_status()},
+                        origin=self._origin(),
+                    )
+                    return
+                if path == "/v1/discover":
+                    self._require_session()
+                    self._send_json(
+                        200,
+                        {"ok": True, **state.discover()},
                         origin=self._origin(),
                     )
                     return

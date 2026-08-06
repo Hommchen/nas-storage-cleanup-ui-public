@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -210,6 +211,24 @@ class ControlServerTests(unittest.TestCase):
             local_nas=True,
         )
         self.assertEqual(state.runtime_mode, "pi-local")
+
+    def test_discovery_is_session_gated_and_read_only(self):
+        denied, _, _ = self.request("GET", "/v1/discover")
+        with patch.object(
+            self.state,
+            "discover",
+            return_value={"readOnly": True, "checks": [], "ready": False},
+        ):
+            allowed, _, payload = self.request(
+                "GET",
+                "/v1/discover",
+                origin=ORIGIN,
+                token=self.state.session_token,
+            )
+        self.assertEqual(denied, 403)
+        self.assertEqual(allowed, 200)
+        self.assertTrue(payload["readOnly"])
+        self.assertIn("checks", payload)
 
     def test_config_update_is_persisted_and_invalidates_inventory(self):
         with tempfile.TemporaryDirectory() as temporary:

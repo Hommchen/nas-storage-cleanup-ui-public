@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from scripts.configuration import (
     ConfigurationError,
     default_config,
+    discover_config,
     load_config,
     normalize_config,
     probe_config,
@@ -36,6 +39,95 @@ class ConfigurationTests(unittest.TestCase):
             self.assertEqual(load_config(path), written)
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             self.assertEqual(json.loads(path.read_text())["ssh_host"], "nas@example.lan")
+
+    def test_discovery_is_read_only_and_returns_a_ready_common_layout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            volume = root / "volume"
+            media_movies = volume / "media/Movies"
+            media_tv = volume / "media/TV"
+            completed = volume / "downloads/completed"
+            for directory in (media_movies, media_tv, completed):
+                directory.mkdir(parents=True)
+            qb_backup = root / "home/user/.local/share/qBittorrent/BT_backup"
+            qb_backup.mkdir(parents=True)
+            app_backup = root / "app/shared/qb-backups"
+            app_backup.mkdir(parents=True)
+            moviepilot_db = root / "config/user.db"
+            moviepilot_db.parent.mkdir(parents=True)
+            connection = sqlite3.connect(moviepilot_db)
+            connection.execute("create table mediaserveritem (path text)")
+            connection.execute(
+                "insert into mediaserveritem values (?)",
+                (str(media_movies / "Example" / "Example.mkv"),),
+            )
+            connection.commit()
+            connection.close()
+            jellyfin_db = root / "config/data/jellyfin.db"
+            jellyfin_db.parent.mkdir(parents=True, exist_ok=True)
+            connection = sqlite3.connect(jellyfin_db)
+            connection.execute("create table BaseItems (Id text)")
+            connection.commit()
+            connection.close()
+
+            def fake_mountpoint(path):
+                path = Path(path)
+                return volume if path == volume or volume in path.parents else root
+
+            before = sorted(path.relative_to(root).as_posix() for path in root.rglob("*"))
+            with patch("scripts.discovery._DISCOVERY_ROOTS", (root,)), patch(
+                "scripts.discovery._DISCOVERY_STORAGE_BASES", (root,)
+            ), patch("scripts.discovery._DIRECT_DISCOVERY_CANDIDATES", {}), patch(
+                "scripts.discovery._probe_qb_url", return_value=True
+            ), patch("scripts.discovery._mountpoint", side_effect=fake_mountpoint):
+                result = discover_config(default_config(), project_root=root / "app")
+            after = sorted(path.relative_to(root).as_posix() for path in root.rglob("*"))
+
+            self.assertTrue(result["readOnly"])
+            self.assertTrue(result["ready"], result)
+            self.assertEqual(before, after)
+            self.assertEqual(result["config"]["moviepilot_db"], str(moviepilot_db.resolve()))
+            self.assertEqual(result["config"]["jellyfin_db"], str(jellyfin_db.resolve()))
+            self.assertEqual(result["config"]["qb_backup"], str(qb_backup.resolve()))
+            self.assertIn(str(media_movies.resolve()), result["config"]["allowed_roots"])
+            self.assertIn(str(media_tv.resolve()), result["config"]["allowed_roots"])
+
+    def test_discovery_fails_closed_on_ambiguous_databases(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            volume_one = root / "mnt/disk1"
+            volume_two = root / "mnt/disk2"
+            for volume in (volume_one, volume_two):
+                (volume / "media/Movies").mkdir(parents=True)
+                (volume / ".storage-cleanup-quarantine").mkdir()
+            for path in (
+                volume_one / "appdata/moviepilot/config/user.db",
+                volume_two / "appdata/moviepilot/config/user.db",
+            ):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                connection = sqlite3.connect(path)
+                connection.execute("create table mediaserveritem (path text)")
+                connection.commit()
+                connection.close()
+            (root / "app/shared/qb-backups").mkdir(parents=True)
+
+            def fake_mountpoint(path):
+                path = Path(path)
+                for volume in (volume_one, volume_two):
+                    if path == volume or volume in path.parents:
+                        return volume
+                return root
+
+            with patch("scripts.discovery._DISCOVERY_ROOTS", (root,)), patch(
+                "scripts.discovery._DISCOVERY_STORAGE_BASES", (root / "mnt",)
+            ), patch("scripts.discovery._DIRECT_DISCOVERY_CANDIDATES", {}), patch(
+                "scripts.discovery._probe_qb_url", return_value=False
+            ), patch("scripts.discovery._mountpoint", side_effect=fake_mountpoint):
+                result = discover_config(default_config(), project_root=root / "app")
+
+            self.assertFalse(result["ready"])
+            self.assertTrue(result["checks"][1]["ambiguous"])
+            self.assertIn("moviepilot_db", result["ambiguities"])
 
     def test_probe_is_read_only_and_checks_same_device_quarantine(self):
         with tempfile.TemporaryDirectory() as temporary:

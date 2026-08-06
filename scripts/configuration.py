@@ -76,6 +76,20 @@ class ConfigurationError(ValueError):
     """Raised when a configuration cannot be safely interpreted."""
 
 
+def discover_config(
+    current: dict[str, Any] | None = None,
+    *,
+    project_root: Path | None = None,
+) -> dict[str, Any]:
+    """Compatibility wrapper for the read-only NAS discovery module."""
+
+    try:
+        from .discovery import discover_config as _discover_config
+    except (ImportError, ModuleNotFoundError):
+        from scripts.discovery import discover_config as _discover_config
+    return _discover_config(current, project_root=project_root)
+
+
 def default_config() -> dict[str, Any]:
     return deepcopy(DEFAULT_CONFIG)
 
