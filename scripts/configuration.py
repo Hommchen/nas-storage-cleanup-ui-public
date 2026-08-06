@@ -86,7 +86,12 @@ def discover_config(
     try:
         from .discovery import discover_config as _discover_config
     except (ImportError, ModuleNotFoundError):
-        from scripts.discovery import discover_config as _discover_config
+        try:
+            # control_server.py is launched directly from the scripts folder
+            # by systemd, so the sibling module is top-level in that mode.
+            from discovery import discover_config as _discover_config
+        except (ImportError, ModuleNotFoundError):
+            from scripts.discovery import discover_config as _discover_config
     return _discover_config(current, project_root=project_root)
 
 

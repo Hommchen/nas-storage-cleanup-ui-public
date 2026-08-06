@@ -361,7 +361,10 @@ def discover_config(current: dict[str, Any] | None = None, *, project_root: Path
     try:
         from .configuration import default_config, normalize_config, probe_config
     except (ImportError, ModuleNotFoundError):
-        from scripts.configuration import default_config, normalize_config, probe_config
+        try:
+            from configuration import default_config, normalize_config, probe_config
+        except (ImportError, ModuleNotFoundError):
+            from scripts.configuration import default_config, normalize_config, probe_config
 
     base = default_config()
     if isinstance(current, dict):
