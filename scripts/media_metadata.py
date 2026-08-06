@@ -1250,6 +1250,16 @@ def _merge_group(
     for task in qb_tasks:
         seasons.update(_season_numbers(task.get("scope")))
     season_text = _season_label(seasons)
+    present_episode_values: set[str] = set()
+    for item in items:
+        raw_present = item.get("episodePresentEpisodes")
+        if not isinstance(raw_present, (list, tuple, set)):
+            continue
+        present_episode_values.update(
+            str(value).strip()
+            for value in raw_present
+            if str(value).strip()
+        )
     episode_values = []
     for item in items:
         value = item.get("episodeActual")
@@ -1259,7 +1269,11 @@ def _merge_group(
             episode_values.append(int(value))
         except (TypeError, ValueError):
             continue
-    episode_actual = max(episode_values) if episode_values else 0
+    episode_actual = (
+        len(present_episode_values)
+        if present_episode_values
+        else max(episode_values) if episode_values else 0
+    )
     expected_values = set()
     for item in items:
         value = item.get("episodeExpected")
@@ -1270,14 +1284,43 @@ def _merge_group(
         except (TypeError, ValueError):
             continue
     episode_expected = max(expected_values) if expected_values else None
-    episode_incomplete = (
+    missing_episode_values: set[str] = set()
+    for item in items:
+        raw_missing = item.get("episodeMissingEpisodes")
+        if not isinstance(raw_missing, (list, tuple, set)):
+            continue
+        missing_episode_values.update(
+            str(value).strip()
+            for value in raw_missing
+            if str(value).strip()
+        )
+    episode_incomplete = bool(missing_episode_values) or (
         episode_expected is not None
         and 0 < episode_actual < episode_expected
     )
+    if (
+        len(items) > 1
+        and episode_expected is not None
+        and episode_actual >= episode_expected
+    ):
+        # Each raw library row may have been compared with the full expected
+        # set before duplicate rows were merged.  Once their union covers the
+        # expected count, discard only missing markers that are now present in
+        # another row; retain a genuine gap marker such as S01E02.
+        missing_episode_values -= present_episode_values
+    if episode_expected is not None and episode_actual > episode_expected:
+        missing_episode_values = set()
+        episode_incomplete = False
+    elif not missing_episode_values and episode_expected is not None and episode_actual >= episode_expected:
+        episode_incomplete = False
     episode_missing = (
-        episode_expected - episode_actual
-        if episode_incomplete
-        else 0
+        len(missing_episode_values)
+        if missing_episode_values
+        else (
+            episode_expected - episode_actual
+            if episode_incomplete and episode_expected is not None
+            else 0
+        )
     )
     episode_status = (
         "incomplete"
@@ -1425,8 +1468,10 @@ def _merge_group(
         "englishTitle": english_title,
         "edition": edition,
         "episodeActual": episode_actual or None,
+        "episodePresentEpisodes": sorted(present_episode_values),
         "episodeExpected": episode_expected,
         "episodeMissing": episode_missing or None,
+        "episodeMissingEpisodes": sorted(missing_episode_values),
         "episodeIncomplete": episode_incomplete,
         "episodeStatus": episode_status,
         "type": "电视剧" if media_kind == "tv" else "电影",

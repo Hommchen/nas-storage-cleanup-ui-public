@@ -26,6 +26,7 @@ HELPERS_SOURCE = REMOTE_COLLECTOR.split(
 HELPERS_SOURCE = HELPERS_SOURCE.replace("__HR_SOURCE_CACHE__", "{}")
 HELPERS_SOURCE = HELPERS_SOURCE.replace("__QB_FILE_CACHE__", "{}")
 HELPERS_SOURCE = HELPERS_SOURCE.replace("__TMDB_CACHE__", "{}")
+HELPERS_SOURCE = HELPERS_SOURCE.replace("__TMDB_HINTS__", "[]")
 helpers: dict[str, object] = {}
 exec(compile(HELPERS_SOURCE, "<collector-helpers>", "exec"), helpers)
 
@@ -532,6 +533,46 @@ class CollectorHelperTests(unittest.TestCase):
                 {"224372": {1: 6}},
             ),
             6,
+        )
+
+    def test_tv_expected_episodes_catches_a_gap_even_when_count_matches(self):
+        expected = helpers["tv_expected_episodes"](
+            "tv:tmdb:224372",
+            {(1, 1), (1, 3)},
+            {"224372": {1: {"count": 3, "episodes": [1, 2, 3]}}},
+        )
+        self.assertEqual(expected, {(1, 1), (1, 2), (1, 3)})
+
+    def test_special_episode_zero_is_not_a_regular_episode(self):
+        self.assertFalse(helpers["is_regular_episode"](8, 0))
+        self.assertTrue(helpers["is_regular_episode"](8, 1))
+        self.assertFalse(helpers["is_regular_episode"](0, 1))
+
+    def test_episode_gaps_are_detected_without_a_provider_identity(self):
+        self.assertEqual(
+            helpers["episode_gaps"]({(1, 1), (1, 3), (2, 1)}),
+            {(1, 2)},
+        )
+
+    def test_cached_metadata_identity_is_used_for_providerless_tv(self):
+        helpers["TMDB_METADATA_HINTS"] = [
+            {
+                "kind": "tv",
+                "title": "黑袍纠察队",
+                "englishTitle": "The Boys",
+                "query": "The Boys",
+                "tmdbId": 76479,
+            }
+        ]
+        self.assertEqual(
+            helpers["metadata_tmdb_identity"](
+                {
+                    "names": ["黑袍纠察队 第一季 (2019)"],
+                    "original_titles": [],
+                    "paths": ["/media/TV/黑袍纠察队 第一季 (2019)"],
+                }
+            ),
+            "tv:tmdb:76479",
         )
         self.assertEqual(
             helpers["tv_expected_total"](

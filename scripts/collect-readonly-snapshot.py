@@ -116,6 +116,7 @@ HR_HASH_CACHE = __HR_HASH_CACHE__
 HR_SOURCE_CACHE = __HR_SOURCE_CACHE__
 QB_FILE_CACHE = __QB_FILE_CACHE__
 TMDB_SEASON_CACHE = __TMDB_CACHE__
+TMDB_METADATA_HINTS = __TMDB_HINTS__
 # MoviePilot V2 ships this public default TMDB key in app/core/config.py;
 # use it only when the host app.env does not define TMDB_API_KEY so the
 # expected-episode lookup works on stock MoviePilot installs.
@@ -457,6 +458,89 @@ def tmdb_season_counts(tmdb_id):
     return counts or None
 
 
+def tmdb_season_episodes(tmdb_id, season_number, tmdb_cache):
+    """Return regular episode numbers for one TMDB season when available.
+
+    Older cache entries contain only an integer episode count.  Keep those
+    entries valid, but upgrade a season to an exact episode-number set when
+    the season endpoint is reachable.  The exact set is what lets the
+    completeness check catch a hole such as E01 + E03 even when the count is
+    equal to the expected total.
+    """
+    try:
+        series_key = str(int(tmdb_id))
+        season_key = int(season_number)
+    except (TypeError, ValueError):
+        return None
+    cached = tmdb_cache.get(series_key, {})
+    raw_entry = cached.get(season_key) if isinstance(cached, dict) else None
+    if isinstance(raw_entry, dict):
+        raw_episodes = raw_entry.get("episodes")
+        if isinstance(raw_episodes, (list, tuple, set)):
+            episodes = set()
+            for value in raw_episodes:
+                try:
+                    number = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if number >= 1:
+                    episodes.add(number)
+            if episodes:
+                return episodes
+
+    env_path = Path(MOVIEPILOT_DB).parent / "app.env"
+    api_key = None
+    proxy = None
+    try:
+        env_text = env_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        env_text = ""
+    for raw in env_text.splitlines():
+        line = raw.strip()
+        if line.startswith("TMDB_API_KEY="):
+            api_key = line.split("=", 1)[1].strip()
+        elif line.startswith("PROXY_HOST="):
+            proxy = line.split("=", 1)[1].strip()
+    api_key = api_key or DEFAULT_TMDB_API_KEY
+    url = (
+        "https://api.themoviedb.org/3/tv/"
+        + quote(series_key, safe="")
+        + "/season/"
+        + quote(str(season_key), safe="")
+        + "?api_key="
+        + quote(api_key, safe="")
+        + "&language=zh-CN"
+    )
+    try:
+        opener = (
+            build_opener(ProxyHandler({"http": proxy, "https": proxy}))
+            if proxy
+            else build_opener()
+        )
+        with opener.open(url, timeout=20) as response:
+            payload = json.load(response)
+    except Exception:
+        return None
+    episodes = set()
+    for episode in payload.get("episodes") or []:
+        try:
+            number = int(episode.get("episode_number") or 0)
+        except (TypeError, ValueError):
+            continue
+        if number >= 1:
+            episodes.add(number)
+    if not episodes:
+        return None
+    if not isinstance(cached, dict):
+        cached = {}
+        tmdb_cache[series_key] = cached
+    cached[season_key] = {
+        "count": len(episodes),
+        "episodes": sorted(episodes),
+    }
+    return episodes
+
+
 def tv_expected_total(identity, episodes, tmdb_cache):
     """Total regular episodes expected for a TV group, or None when unknown."""
     if not identity.startswith("tv:tmdb:"):
@@ -472,12 +556,94 @@ def tv_expected_total(identity, episodes, tmdb_cache):
             tmdb_cache[tmdb_id] = counts
     if not counts:
         return None
-    total = sum(
-        int(count)
-        for season_number, count in counts.items()
-        if season_number in seasons
-    )
+    total = 0
+    for season_number, raw_count in counts.items():
+        if season_number not in seasons:
+            continue
+        if isinstance(raw_count, dict):
+            raw_count = raw_count.get("count")
+        try:
+            count = int(raw_count)
+        except (TypeError, ValueError):
+            continue
+        if count > 0:
+            total += count
     return total if total > 0 else None
+
+
+def tv_expected_episodes(identity, episodes, tmdb_cache):
+    """Return exact expected regular episodes for observed seasons, if known."""
+    if not identity.startswith("tv:tmdb:"):
+        return None
+    tmdb_id = identity.split(":", 2)[2]
+    seasons = {season for season, _ in episodes if season >= 1}
+    if not seasons:
+        return None
+    expected = set()
+    for season in sorted(seasons):
+        numbers = tmdb_season_episodes(tmdb_id, season, tmdb_cache)
+        if not numbers:
+            return None
+        expected.update((season, number) for number in numbers)
+    return expected or None
+
+
+def metadata_tmdb_identity(group):
+    """Resolve a cached metadata identity for a provider-less TV group."""
+    haystack = " ".join(
+        str(value or "")
+        for value in (
+            *group.get("names", []),
+            *group.get("original_titles", []),
+            *group.get("paths", []),
+        )
+    ).casefold()
+    if not haystack:
+        return None
+    for hint in TMDB_METADATA_HINTS:
+        if not isinstance(hint, dict):
+            continue
+        try:
+            tmdb_id = int(hint.get("tmdbId"))
+        except (TypeError, ValueError):
+            continue
+        if tmdb_id <= 0 or str(hint.get("kind") or "") != "tv":
+            continue
+        for value in (
+            hint.get("title"),
+            hint.get("englishTitle"),
+            hint.get("query"),
+        ):
+            candidate = str(value or "").strip().casefold()
+            if len(candidate) >= 2 and candidate in haystack:
+                return f"tv:tmdb:{tmdb_id}"
+    return None
+
+
+def is_regular_episode(season, episode_number):
+    """Return whether a Jellyfin row is a numbered, non-special episode."""
+    try:
+        return int(season) >= 1 and int(episode_number) >= 1
+    except (TypeError, ValueError):
+        return False
+
+
+def episode_gaps(episodes):
+    """Return holes between observed regular episode numbers by season."""
+    by_season = defaultdict(set)
+    for season, episode in episodes:
+        if is_regular_episode(season, episode):
+            by_season[int(season)].add(int(episode))
+    gaps = set()
+    for season, numbers in by_season.items():
+        if len(numbers) < 2:
+            continue
+        gaps.update(
+            (season, episode)
+            for episode in range(min(numbers), max(numbers) + 1)
+            if episode not in numbers
+        )
+    return gaps
 
 
 def site_label(row):
@@ -1659,11 +1825,7 @@ for row in db.execute(
         episode_number = int(match.group(1)) if match else None
     # Regular episodes only: specials (season 0) and rows without a usable
     # episode number never count towards completeness.
-    if (
-        season is not None
-        and int(season) >= 1
-        and episode_number is not None
-    ):
+    if is_regular_episode(season, episode_number):
         group["episodes"].add((int(season), int(episode_number)))
     if season is not None:
         group["seasons"].add(int(season))
@@ -1880,24 +2042,56 @@ for group in groups.values():
         seasons = sorted(group["seasons"])
         season_text = season_label(seasons, seasons) if seasons else "季数待识别"
         episode_actual = len(group["episodes"])
-        episode_expected = tv_expected_total(
-            group["key"],
+        expected_identity = group["key"]
+        if not expected_identity.startswith("tv:tmdb:"):
+            expected_identity = metadata_tmdb_identity(group) or expected_identity
+        expected_episodes = tv_expected_episodes(
+            expected_identity,
             group["episodes"],
             TMDB_SEASON_CACHE,
         )
-        episode_incomplete = (
-            episode_expected is not None
-            and 0 < episode_actual < episode_expected
+        episode_expected = tv_expected_total(
+            expected_identity,
+            group["episodes"],
+            TMDB_SEASON_CACHE,
         )
+        local_missing_episodes = episode_gaps(group["episodes"])
+        missing_episodes = (
+            sorted(
+                (expected_episodes - group["episodes"])
+                | local_missing_episodes
+            )
+            if expected_episodes is not None
+            else sorted(local_missing_episodes)
+        )
+        if expected_episodes is not None:
+            # A provider identity that claims fewer episodes than are on disk
+            # is stale/wrong metadata (for example a 12-episode show mapped
+            # to a two-episode TMDB title).  Do not render a misleading
+            # “12/2” figure or use it as a completeness gate.
+            if episode_expected is not None and episode_actual > episode_expected:
+                episode_expected = None
+                expected_episodes = None
+                missing_episodes = sorted(local_missing_episodes)
+        episode_incomplete = bool(missing_episodes)
+        if not episode_incomplete:
+            episode_incomplete = (
+                episode_expected is not None
+                and 0 < episode_actual < episode_expected
+            )
         episode_missing = (
-            episode_expected - episode_actual
-            if episode_incomplete
-            else 0
+            len(missing_episodes)
+            if missing_episodes
+            else (
+                episode_expected - episode_actual
+                if episode_incomplete and episode_expected is not None
+                else 0
+            )
         )
         if episode_expected is None:
             edition = f"{season_text} · {episode_actual} 集"
             library_detail = f"Jellyfin 可播放 · {episode_actual} 集"
-            episode_status = ""
+            episode_status = "incomplete" if episode_incomplete else ""
         else:
             edition = (
                 f"{season_text} · {episode_actual}/{episode_expected} 集"
@@ -1916,6 +2110,7 @@ for group in groups.values():
         episode_actual = None
         episode_expected = None
         episode_missing = None
+        missing_episodes = []
         episode_incomplete = False
         episode_status = ""
     if tasks:
@@ -1936,6 +2131,14 @@ for group in groups.values():
             "episodeActual": episode_actual,
             "episodeExpected": episode_expected,
             "episodeMissing": episode_missing,
+            "episodePresentEpisodes": [
+                f"S{season:02d}E{episode:02d}"
+                for season, episode in sorted(group["episodes"])
+            ],
+            "episodeMissingEpisodes": [
+                f"S{season:02d}E{episode:02d}"
+                for season, episode in missing_episodes
+            ],
             "episodeIncomplete": episode_incomplete,
             "episodeStatus": episode_status,
             "type": "电视剧" if group["media_type"] == "tv" else "电影",
@@ -2041,6 +2244,8 @@ for bundle in unmatched_groups.values():
             "episodeActual": None,
             "episodeExpected": None,
             "episodeMissing": None,
+            "episodePresentEpisodes": [],
+            "episodeMissingEpisodes": [],
             "episodeIncomplete": False,
             "episodeStatus": "",
             "type": "电视剧" if media_type == "tv" else "电影",
@@ -2297,23 +2502,46 @@ def sanitize_qb_file_cache(value: object) -> dict[str, list[dict]]:
     return result
 
 
-def sanitize_tmdb_cache(value: object) -> dict[str, dict[int, int]]:
+def sanitize_tmdb_cache(value: object) -> dict[str, dict[int, object]]:
     if not isinstance(value, dict):
         return {}
-    result: dict[str, dict[int, int]] = {}
+    result: dict[str, dict[int, object]] = {}
     for raw_key, raw_counts in list(value.items())[:2000]:
         key = str(raw_key)
         if not key.isdigit() or not isinstance(raw_counts, dict):
             continue
-        counts: dict[int, int] = {}
-        for raw_season, raw_count in raw_counts.items():
+        counts: dict[int, object] = {}
+        for raw_season, raw_value in raw_counts.items():
             try:
                 season = int(raw_season)
+            except (TypeError, ValueError):
+                continue
+            raw_count = raw_value
+            raw_episodes = None
+            if isinstance(raw_value, dict):
+                raw_count = raw_value.get("count")
+                raw_episodes = raw_value.get("episodes")
+            try:
                 count = int(raw_count)
             except (TypeError, ValueError):
                 continue
             if season >= 1 and 0 < count <= 10000:
-                counts[season] = count
+                if isinstance(raw_episodes, (list, tuple, set)):
+                    episodes_set = set()
+                    for value in raw_episodes:
+                        try:
+                            number = int(value)
+                        except (TypeError, ValueError):
+                            continue
+                        if number >= 1:
+                            episodes_set.add(number)
+                    episodes = sorted(episodes_set)
+                    counts[season] = {
+                        "count": count,
+                        "episodes": episodes[:10000],
+                    }
+                else:
+                    counts[season] = count
         if counts:
             result[key] = counts
     return result
@@ -2468,6 +2696,25 @@ def main() -> int:
         pass
     with args.metadata_overrides.open(encoding="utf-8") as handle:
         metadata_overrides = json.load(handle)
+    tmdb_hints = []
+    for entry in metadata_cache.get("entries", {}).values():
+        if not isinstance(entry, dict) or entry.get("status") != "resolved":
+            continue
+        try:
+            tmdb_id = int(entry.get("tmdbId"))
+        except (TypeError, ValueError):
+            continue
+        if tmdb_id <= 0:
+            continue
+        tmdb_hints.append(
+            {
+                "kind": str(entry.get("kind") or ""),
+                "query": str(entry.get("query") or ""),
+                "title": str(entry.get("title") or ""),
+                "englishTitle": str(entry.get("englishTitle") or ""),
+                "tmdbId": tmdb_id,
+            }
+        )
     remote_collector = REMOTE_COLLECTOR.replace(
         'globals().get("__PINAS_CONFIG__", {})',
         repr(config),
@@ -2487,6 +2734,10 @@ def main() -> int:
     ).replace(
         "__TMDB_CACHE__",
         repr(tmdb_cache),
+        1,
+    ).replace(
+        "__TMDB_HINTS__",
+        repr(tmdb_hints),
         1,
     )
     collector_command = (

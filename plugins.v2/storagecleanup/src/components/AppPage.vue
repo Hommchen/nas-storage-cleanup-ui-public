@@ -661,7 +661,15 @@ onUnmounted(stopRefreshTimer)
           <strong>{{ item.librarySummary }}</strong>
           <span>{{ item.libraryDetail }}</span>
           <span v-if="item.episodeStatus === 'incomplete'">
-            缺 {{ item.episodeMissing }} 集 · 已有 {{ item.episodeActual }} / 应有 {{ item.episodeExpected }}
+            缺 {{ item.episodeMissing }} 集
+            <template v-if="item.episodeMissingEpisodes?.length">
+             （{{ item.episodeMissingEpisodes.join('、') }}）
+            </template>
+            · 已有 {{ item.episodeActual }}
+            <template v-if="item.episodeExpected">
+              / 应有 {{ item.episodeExpected }}
+            </template>
+            <template v-else>（集号存在缺口，期望集数未知）</template>
           </span>
         </div>
 

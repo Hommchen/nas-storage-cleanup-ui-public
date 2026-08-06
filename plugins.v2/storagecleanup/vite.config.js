@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import federation from '@originjs/vite-plugin-federation'
 
-const pluginVersion = '1.0.16'
+const pluginVersion = '1.0.17'
 
 export default defineConfig({
   plugins: [
