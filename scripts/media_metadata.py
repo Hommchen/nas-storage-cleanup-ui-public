@@ -1560,6 +1560,125 @@ def _merge_group(
     return result
 
 
+def _episode_cohort_key(item: dict[str, Any]) -> tuple[str, str, str] | None:
+    """Return a conservative display key for duplicate TV library rows.
+
+    Jellyfin can expose one season through multiple provider-less series
+    identities (for example a Chinese folder and an English folder).  Keep
+    those rows separate for cleanup safety, but allow completeness to use the
+    union when their normalized titles/English names agree.  A trailing year
+    is presentation noise here; a different known year remains a conflict.
+    """
+
+    if _media_kind(item) != "tv" or not item.get("library"):
+        return None
+    title = _clean_text(item.get("title"), maximum=300)
+    english = _clean_text(item.get("englishTitle"), maximum=300)
+    title = re.sub(r"[\s([（._-]*(?:19|20)\d{2}[\])）]?$", "", title)
+    english = re.sub(
+        r"[\s([（._-]*(?:19|20)\d{2}[\])）]?$",
+        "",
+        english,
+    )
+    title_key = _release_normalized(title)
+    english_key = _release_normalized(english)
+    if not title_key and not english_key:
+        return None
+    return ("tv", title_key, english_key or title_key)
+
+
+def _overlay_tv_episode_cohorts(resources: list[dict[str, Any]]) -> None:
+    """Reconcile completeness across duplicate library display rows.
+
+    This intentionally does not merge private deletion records.  It only
+    prevents a split series from reporting each half as incomplete when the
+    union is complete, while preserving the existing identity-conflict lock.
+    """
+
+    cohorts: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    for item in resources:
+        if not item.get("episodePresentEpisodes"):
+            continue
+        key = _episode_cohort_key(item)
+        if key is not None:
+            cohorts[key].append(item)
+    for items in cohorts.values():
+        if len(items) < 2:
+            continue
+        years = {
+            str(item.get("year") or "")
+            for item in items
+            if str(item.get("year") or "")
+        }
+        if len(years) > 1:
+            continue
+        expected_values = set()
+        for item in items:
+            value = item.get("episodeExpected")
+            if value is None:
+                continue
+            try:
+                expected_values.add(int(value))
+            except (TypeError, ValueError):
+                continue
+        if len(expected_values) > 1:
+            continue
+        present = {
+            str(value).strip()
+            for item in items
+            for value in item.get("episodePresentEpisodes") or []
+            if str(value).strip()
+        }
+        if not present:
+            continue
+        missing = {
+            str(value).strip()
+            for item in items
+            for value in item.get("episodeMissingEpisodes") or []
+            if str(value).strip()
+        }
+        missing.update(_episode_gap_values(present))
+        missing -= present
+        expected = next(iter(expected_values), None)
+        actual = len(present)
+        incomplete = bool(missing) or (
+            expected is not None and 0 < actual < expected
+        )
+        episode_missing = len(missing) if missing else (
+            expected - actual
+            if incomplete and expected is not None
+            else 0
+        )
+        seasons = _season_numbers(" ".join(sorted(present)))
+        season_text = _season_label(seasons)
+        for item in items:
+            item["episodeActual"] = actual
+            item["episodePresentEpisodes"] = sorted(present)
+            item["episodeExpected"] = expected
+            item["episodeMissingEpisodes"] = sorted(missing)
+            item["episodeMissing"] = episode_missing or None
+            item["episodeIncomplete"] = incomplete
+            item["episodeStatus"] = (
+                "incomplete"
+                if incomplete
+                else "complete"
+                if expected is not None and actual >= expected
+                else ""
+            )
+            if season_text and "全季合集" not in str(item.get("edition") or ""):
+                item["edition"] = (
+                    f"{season_text} · {actual}/{expected} 集"
+                    if expected is not None
+                    else f"{season_text} · {actual} 集"
+                )
+                if item.get("libraryDetail"):
+                    item["libraryDetail"] = (
+                        f"Jellyfin 可播放 · {actual}/{expected} 集"
+                        if expected is not None
+                        else f"Jellyfin 可播放 · {actual} 集"
+                    )
+
+
 def enrich_and_merge_resources(
     resources: list[dict[str, Any]],
     cache: dict[str, Any],
@@ -1853,6 +1972,7 @@ def enrich_and_merge_resources(
             order.append(identity)
         groups[identity].append(item)
     merged = [_merge_group(groups[identity], identity) for identity in order]
+    _overlay_tv_episode_cohorts(merged)
     merged.sort(key=lambda item: (-float(item.get("size") or 0), item["title"]))
     return merged, {
         "metadataResolvedResources": resolved_all,

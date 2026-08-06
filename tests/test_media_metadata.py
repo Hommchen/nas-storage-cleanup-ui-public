@@ -416,6 +416,68 @@ class MediaMetadataTests(unittest.TestCase):
         self.assertEqual(merged[0]["episodeMissingEpisodes"], [])
         self.assertFalse(merged[0]["episodeIncomplete"])
 
+    def test_duplicate_display_rows_share_tv_completeness_without_merging_cleanup_records(self):
+        first = raw_resource(
+            resource_id="res_cohort_a",
+            title="悬案",
+            english="Unsettled Case",
+            edition="S01 · 9/17 集",
+            media_type="电视剧",
+            year="2026",
+            private=private_record(
+                identity="tv:path:/allowed/悬案",
+                task_hash="w" * 40,
+                path="/allowed/悬案/e01.mkv",
+                inode=133,
+                scope="S01",
+            ),
+            library=True,
+        )
+        first.update(
+            {
+                "episodeActual": 9,
+                "episodeExpected": 17,
+                "episodePresentEpisodes": [f"S01E{i:02d}" for i in range(1, 10)],
+                "episodeMissingEpisodes": [f"S01E{i:02d}" for i in range(10, 18)],
+                "episodeIncomplete": True,
+                "episodeStatus": "incomplete",
+            }
+        )
+        second = raw_resource(
+            resource_id="res_cohort_b",
+            title="悬案 (2026)",
+            english="Unsettled Case (2026)",
+            edition="S01 · 8/17 集",
+            media_type="电视剧",
+            year="2026",
+            private=private_record(
+                identity="tv:path:/allowed/悬案-2026",
+                task_hash="x" * 40,
+                path="/allowed/悬案-2026/e10.mkv",
+                inode=134,
+                scope="S01",
+            ),
+            library=True,
+        )
+        second.update(
+            {
+                "episodeActual": 8,
+                "episodeExpected": 17,
+                "episodePresentEpisodes": [f"S01E{i:02d}" for i in range(10, 18)],
+                "episodeMissingEpisodes": [f"S01E{i:02d}" for i in range(1, 10)],
+                "episodeIncomplete": True,
+                "episodeStatus": "incomplete",
+            }
+        )
+
+        merged, _ = enrich_and_merge_resources([first, second], {})
+
+        self.assertEqual(len(merged), 2)
+        self.assertTrue(all(item["episodeActual"] == 17 for item in merged))
+        self.assertTrue(all(item["episodeExpected"] == 17 for item in merged))
+        self.assertTrue(all(not item["episodeIncomplete"] for item in merged))
+        self.assertTrue(all(item["episodeMissingEpisodes"] == [] for item in merged))
+
     def test_tv_episode_completeness_stays_unknown_without_expected(self):
         resource = raw_resource(
             resource_id="res_tv_unknown",
