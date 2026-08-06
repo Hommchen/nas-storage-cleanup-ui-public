@@ -75,12 +75,21 @@ class ConfigurationTests(unittest.TestCase):
                 return volume if path == volume or volume in path.parents else root
 
             before = sorted(path.relative_to(root).as_posix() for path in root.rglob("*"))
+            discovery_current = default_config()
+            discovery_current.update(
+                {
+                    "jellyfin_db": str(root / "missing-jellyfin.db"),
+                    "moviepilot_db": str(root / "missing-moviepilot.db"),
+                    "qb_backup": str(root / "missing-qb-backup"),
+                    "qb_url": "http://127.0.0.1:9",
+                }
+            )
             with patch("scripts.discovery._DISCOVERY_ROOTS", (root,)), patch(
                 "scripts.discovery._DISCOVERY_STORAGE_BASES", (root,)
             ), patch("scripts.discovery._DIRECT_DISCOVERY_CANDIDATES", {}), patch(
                 "scripts.discovery._probe_qb_url", return_value=True
             ), patch("scripts.discovery._mountpoint", side_effect=fake_mountpoint):
-                result = discover_config(default_config(), project_root=root / "app")
+                result = discover_config(discovery_current, project_root=root / "app")
             after = sorted(path.relative_to(root).as_posix() for path in root.rglob("*"))
 
             self.assertTrue(result["readOnly"])
@@ -123,7 +132,16 @@ class ConfigurationTests(unittest.TestCase):
             ), patch("scripts.discovery._DIRECT_DISCOVERY_CANDIDATES", {}), patch(
                 "scripts.discovery._probe_qb_url", return_value=False
             ), patch("scripts.discovery._mountpoint", side_effect=fake_mountpoint):
-                result = discover_config(default_config(), project_root=root / "app")
+                discovery_current = default_config()
+                discovery_current.update(
+                    {
+                        "jellyfin_db": str(root / "missing-jellyfin.db"),
+                        "moviepilot_db": str(root / "missing-moviepilot.db"),
+                        "qb_backup": str(root / "missing-qb-backup"),
+                        "qb_url": "http://127.0.0.1:9",
+                    }
+                )
+                result = discover_config(discovery_current, project_root=root / "app")
 
             self.assertFalse(result["ready"])
             self.assertTrue(result["checks"][1]["ambiguous"])
