@@ -86,7 +86,7 @@ class MoviePilotPluginTests(unittest.TestCase):
             (PLUGIN_ROOT / "__init__.py").read_text(encoding="utf-8"),
         )
         self.assertTrue(
-            (PLUGIN_ROOT / "dist/v1.0.16/assets/remoteEntry.js").is_file()
+            (PLUGIN_ROOT / "dist/v1.0.17/assets/remoteEntry.js").is_file()
         )
 
     def test_bridge_uses_token_only_in_internal_headers(self):
