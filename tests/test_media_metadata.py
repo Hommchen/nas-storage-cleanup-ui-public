@@ -264,6 +264,97 @@ class MediaMetadataTests(unittest.TestCase):
         self.assertIsNone(merged[0]["episodeMissing"])
         self.assertEqual(merged[0]["edition"], "S01 · 6/6 集")
 
+    def test_tv_episode_gap_stays_incomplete_when_count_matches(self):
+        resource = raw_resource(
+            resource_id="res_tv_gap",
+            title="缺中间集剧集",
+            english="Gap Series",
+            edition="S01 · 2/2 集",
+            media_type="电视剧",
+            private=private_record(
+                identity="tv:tmdb:224372",
+                task_hash="g" * 40,
+                path="/allowed/tv/s01/e01.mkv",
+                inode=128,
+                scope="S01",
+            ),
+            library=True,
+        )
+        resource.update(
+            {
+                "episodeActual": 2,
+                "episodeExpected": 2,
+                "episodeMissing": 1,
+                "episodeMissingEpisodes": ["S01E02"],
+                "episodeIncomplete": True,
+                "episodeStatus": "incomplete",
+            }
+        )
+
+        merged, _ = enrich_and_merge_resources([resource], {})
+
+        self.assertTrue(merged[0]["episodeIncomplete"])
+        self.assertEqual(merged[0]["episodeMissing"], 1)
+        self.assertEqual(merged[0]["episodeMissingEpisodes"], ["S01E02"])
+
+    def test_tv_episode_counts_union_duplicate_library_rows(self):
+        first = raw_resource(
+            resource_id="res_tv_part_a",
+            title="拆分剧集",
+            english="Split Series",
+            edition="S01 · 2/4 集",
+            media_type="电视剧",
+            private=private_record(
+                identity="tv:tmdb:224372",
+                task_hash="a" * 40,
+                path="/allowed/tv/s01/e01.mkv",
+                inode=129,
+                scope="S01",
+            ),
+            library=True,
+        )
+        first.update(
+            {
+                "episodeActual": 2,
+                "episodeExpected": 4,
+                "episodePresentEpisodes": ["S01E01", "S01E02"],
+                "episodeMissingEpisodes": ["S01E03", "S01E04"],
+                "episodeIncomplete": True,
+                "episodeStatus": "incomplete",
+            }
+        )
+        second = raw_resource(
+            resource_id="res_tv_part_b",
+            title="拆分剧集",
+            english="Split Series",
+            edition="S01 · 2/4 集",
+            media_type="电视剧",
+            private=private_record(
+                identity="tv:tmdb:224372",
+                task_hash="b" * 40,
+                path="/allowed/tv/s01/e03.mkv",
+                inode=130,
+                scope="S01",
+            ),
+            library=True,
+        )
+        second.update(
+            {
+                "episodeActual": 2,
+                "episodeExpected": 4,
+                "episodePresentEpisodes": ["S01E03", "S01E04"],
+                "episodeMissingEpisodes": ["S01E01", "S01E02"],
+                "episodeIncomplete": True,
+                "episodeStatus": "incomplete",
+            }
+        )
+
+        merged, _ = enrich_and_merge_resources([first, second], {})
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["episodeActual"], 4)
+        self.assertFalse(merged[0]["episodeIncomplete"])
+
     def test_tv_episode_completeness_stays_unknown_without_expected(self):
         resource = raw_resource(
             resource_id="res_tv_unknown",
