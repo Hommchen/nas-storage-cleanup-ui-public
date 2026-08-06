@@ -355,6 +355,67 @@ class MediaMetadataTests(unittest.TestCase):
         self.assertEqual(merged[0]["episodeActual"], 4)
         self.assertFalse(merged[0]["episodeIncomplete"])
 
+    def test_unknown_expected_duplicate_rows_recompute_gaps_from_union(self):
+        first = raw_resource(
+            resource_id="res_unknown_part_a",
+            title="拆分未知剧集",
+            english="Split Unknown Series",
+            edition="S01 · 9 集",
+            media_type="电视剧",
+            private=private_record(
+                identity="tv:tmdb:999999",
+                task_hash="u" * 40,
+                path="/allowed/tv/s01/e01.mkv",
+                inode=131,
+                scope="S01",
+            ),
+            library=True,
+        )
+        first.update(
+            {
+                "episodeActual": 9,
+                "episodeExpected": None,
+                "episodePresentEpisodes": [f"S01E{i:02d}" for i in range(1, 10)],
+                "episodeMissingEpisodes": [],
+                "episodeIncomplete": False,
+                "episodeStatus": "",
+            }
+        )
+        second = raw_resource(
+            resource_id="res_unknown_part_b",
+            title="拆分未知剧集",
+            english="Split Unknown Series",
+            edition="S01 · 8 集",
+            media_type="电视剧",
+            private=private_record(
+                identity="tv:tmdb:999999",
+                task_hash="v" * 40,
+                path="/allowed/tv/s01/e10.mkv",
+                inode=132,
+                scope="S01",
+            ),
+            library=True,
+        )
+        second.update(
+            {
+                "episodeActual": 8,
+                "episodeExpected": None,
+                "episodePresentEpisodes": [f"S01E{i:02d}" for i in range(10, 18)],
+                "episodeMissingEpisodes": [f"S01E{i:02d}" for i in range(1, 10)],
+                "episodeIncomplete": True,
+                "episodeStatus": "incomplete",
+            }
+        )
+
+        merged, _ = enrich_and_merge_resources([first, second], {})
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["episodeActual"], 17)
+        self.assertEqual(merged[0]["episodePresentEpisodes"][0], "S01E01")
+        self.assertEqual(merged[0]["episodePresentEpisodes"][-1], "S01E17")
+        self.assertEqual(merged[0]["episodeMissingEpisodes"], [])
+        self.assertFalse(merged[0]["episodeIncomplete"])
+
     def test_tv_episode_completeness_stays_unknown_without_expected(self):
         resource = raw_resource(
             resource_id="res_tv_unknown",

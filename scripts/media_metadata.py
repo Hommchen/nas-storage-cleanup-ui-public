@@ -29,6 +29,7 @@ MANUAL_IDENTITY_RE = re.compile(
 SEASON_RANGE_RE = re.compile(
     r"(?i)S(\d{1,2})(?:\s*[-–—]\s*S?(\d{1,2}))?"
 )
+EPISODE_VALUE_RE = re.compile(r"(?i)^S(\d{1,2})E(\d{1,3})$")
 DOWNLOAD_STATES = frozenset(
     {"downloading", "forceddl", "stalleddl", "metadl", "checkingdl"}
 )
@@ -1002,6 +1003,28 @@ def _season_label(values: set[int]) -> str:
     return "、".join(f"S{value:02d}" for value in seasons)
 
 
+def _episode_gap_values(values: set[str]) -> set[str]:
+    """Return local leading/interior gaps from a merged episode union."""
+
+    by_season: dict[int, set[int]] = defaultdict(set)
+    for value in values:
+        match = EPISODE_VALUE_RE.fullmatch(str(value).strip())
+        if not match:
+            continue
+        season = int(match.group(1))
+        episode = int(match.group(2))
+        if season >= 1 and episode >= 1:
+            by_season[season].add(episode)
+    result: set[str] = set()
+    for season, episodes in by_season.items():
+        result.update(
+            f"S{season:02d}E{episode:02d}"
+            for episode in range(1, max(episodes) + 1)
+            if episode not in episodes
+        )
+    return result
+
+
 def _human_size(gib: float) -> str:
     if gib >= 1024:
         return f"{gib / 1024:.2f} TB"
@@ -1294,6 +1317,11 @@ def _merge_group(
             for value in raw_missing
             if str(value).strip()
         )
+    # Raw Jellyfin groups can split one season across duplicate identities
+    # (for example E01-E09 and E10-E17).  Recompute local gaps from the union
+    # and discard stale markers that another merged row actually supplies.
+    missing_episode_values.update(_episode_gap_values(present_episode_values))
+    missing_episode_values -= present_episode_values
     episode_incomplete = bool(missing_episode_values) or (
         episode_expected is not None
         and 0 < episode_actual < episode_expected
