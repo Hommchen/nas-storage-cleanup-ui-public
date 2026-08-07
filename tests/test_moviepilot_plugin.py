@@ -55,7 +55,7 @@ class MoviePilotPluginTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["StorageCleanup"]["system_version"], ">=2.14.6")
-        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.17")
+        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.18")
         self.assertIn("自动发现 MoviePilot", manifest["StorageCleanup"]["description"])
         self.assertIn(
             "一键清理全链路耦合",
@@ -86,7 +86,7 @@ class MoviePilotPluginTests(unittest.TestCase):
             (PLUGIN_ROOT / "__init__.py").read_text(encoding="utf-8"),
         )
         self.assertTrue(
-            (PLUGIN_ROOT / "dist/v1.0.17/assets/remoteEntry.js").is_file()
+            (PLUGIN_ROOT / "dist/v1.0.18/assets/remoteEntry.js").is_file()
         )
 
     def test_bridge_uses_token_only_in_internal_headers(self):
@@ -168,6 +168,13 @@ class MoviePilotPluginTests(unittest.TestCase):
         self.assertIn("confirmPhrase: plan.value.confirmPhrase", page)
         self.assertIn("acknowledgeSiteRisk", page)
         self.assertIn("资源清单已过期，请点击“刷新资源清单”后再操作", page)
+        self.assertIn("function executionErrorMessage(error, fallback)", page)
+        self.assertIn("if (nested.plan) plan.value = nested.plan", page)
+        self.assertIn("requestFailure.data = payload", page)
+        self.assertIn("executeError.value = executionErrorMessage(err, '执行失败。')", page)
+        self.assertIn('v-if="executeError && !executeResult"', page)
+        self.assertIn(':disabled="executing || !inventoryCurrent || planExpired"', page)
+        self.assertIn('class="plan-state blocked"', page)
         self.assertIn("v-if=\"!inventoryCurrent && !refreshing\"", page)
         self.assertIn(":disabled=\"!inventoryCurrent || refreshing\"", page)
         self.assertIn("FILTER_GROUPS", page)

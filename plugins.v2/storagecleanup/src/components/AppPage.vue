@@ -183,6 +183,35 @@ function requestErrorMessage(error, fallback) {
   return nested.message || payload.message || error?.message || fallback
 }
 
+const EXECUTION_STALE_CODES = new Set([
+  'inventory_stale',
+  'preflight_refresh_failed',
+  'plan_rebuild_failed',
+  'plan_not_cached',
+])
+
+function executionErrorMessage(error, fallback) {
+  const response = error?.response || {}
+  const payload = response.data || error?.data || {}
+  const nested = payload?.error || {}
+
+  // Axios rejects non-2xx responses, so the control-service payload lives on
+  // the error object instead of reaching unwrapResponse(). Preserve a
+  // refreshed plan when the final preflight found changed task/file state.
+  if (nested.plan) plan.value = nested.plan
+  if (EXECUTION_STALE_CODES.has(nested.code)) {
+    health.value = { ...health.value, inventoryCurrent: false }
+    selected.value = []
+    if (!nested.plan) plan.value = null
+  }
+
+  if (nested.message || payload.message) return nested.message || payload.message
+  if (response.status === 409 || error?.status === 409) {
+    return '执行请求已被安全门禁拒绝，请重新生成并确认计划。'
+  }
+  return error?.message || fallback
+}
+
 async function get(path) {
   return unwrapResponse(await props.api.get(`${pluginBase.value}${path}`))
 }
@@ -297,6 +326,7 @@ function clearFilterChip(chip) {
 async function requestPlan(mode, acknowledged = false) {
   planLoading.value = true
   planError.value = ''
+  executeError.value = ''
   plan.value = null
   finalConfirmation.value = false
   if (!inventoryCurrent.value) {
@@ -345,7 +375,7 @@ async function setSiteRisk(value) {
 }
 
 async function executePlan() {
-  if (!plan.value || planExpired.value || executing.value) return
+  if (!plan.value || planExpired.value || executing.value || !inventoryCurrent.value) return
   executing.value = true
   executeError.value = ''
   try {
@@ -354,8 +384,9 @@ async function executePlan() {
       confirmPhrase: plan.value.confirmPhrase,
     })
     if (!payload?.ok || !payload.result) {
-      if (payload?.error?.plan) plan.value = payload.error.plan
-      throw new Error(payloadError(payload, '执行失败。'))
+      const requestFailure = new Error(payloadError(payload, '执行失败。'))
+      requestFailure.data = payload
+      throw requestFailure
     }
     executeResult.value = payload.result
     selected.value = []
@@ -373,7 +404,7 @@ async function executePlan() {
       if (latest?.snapshot) acceptSnapshot(latest.snapshot)
     }
   } catch (err) {
-    executeError.value = err?.message || '执行失败。'
+    executeError.value = executionErrorMessage(err, '执行失败。')
     finalConfirmation.value = false
   } finally {
     executing.value = false
@@ -805,6 +836,10 @@ onUnmounted(stopRefreshTimer)
           </p>
         </div>
 
+        <div v-if="executeError && !executeResult" class="plan-state blocked">
+          <strong>执行未开始</strong><span>{{ executeError }}</span>
+        </div>
+
         <div v-if="executeResult" class="execution-result">
           <strong>{{ currentAction?.title }}已完成</strong>
           <span>
@@ -818,13 +853,12 @@ onUnmounted(stopRefreshTimer)
         </div>
         <div v-else-if="finalConfirmation" class="final-confirmation">
           <strong>再次确认：系统将立即执行这份计划</strong>
-          <span v-if="executeError" class="error-text">{{ executeError }}</span>
           <div>
             <button type="button" :disabled="executing" @click="finalConfirmation = false">返回</button>
             <button
               :class="{ danger: planMode === 'delete' }"
               type="button"
-              :disabled="executing || planExpired"
+              :disabled="executing || !inventoryCurrent || planExpired"
               @click="executePlan"
             >
               {{ executing ? '正在定向复核…' : `确认${currentAction?.title}` }}
@@ -835,7 +869,7 @@ onUnmounted(stopRefreshTimer)
           v-else
           class="confirm-button"
           type="button"
-          :disabled="!executionEnabled || !plan?.canExecute || planExpired"
+          :disabled="!executionEnabled || !inventoryCurrent || !plan?.canExecute || planExpired"
           @click="finalConfirmation = true"
         >
           进入最终确认
