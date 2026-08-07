@@ -615,6 +615,45 @@ class ActionPlannerTests(unittest.TestCase):
         )
         self.assertEqual(public_plan(plan)["operationCounts"]["moviepilotIndexes"], 1)
 
+    def test_delete_blocks_when_hardlink_belongs_to_unselected_resource(self):
+        first = resource("res_a", file_path="/mnt/sdc/downloads/completed/A.mkv")
+        second = resource("res_b", file_path="/mnt/sdc/downloads/completed/B.mkv")
+        plan = build_plan(
+            inventory(first, second),
+            snapshot_id="snap_test",
+            resource_ids=["res_a"],
+            mode="delete",
+            now=NOW,
+        )
+
+        self.assertFalse(plan["canExecute"])
+        self.assertIn(
+            "shared_hardlink_resource",
+            {item["code"] for item in plan["blocks"]},
+        )
+        self.assertEqual(plan["resources"][0]["sharedResourceIds"], ["res_b"])
+        self.assertEqual(plan["operations"]["unlinkFiles"], [])
+
+    def test_delete_allows_complete_selection_of_shared_resources(self):
+        first = resource("res_a", file_path="/mnt/sdc/downloads/completed/A.mkv")
+        second = resource("res_b", file_path="/mnt/sdc/downloads/completed/B.mkv")
+        plan = build_plan(
+            inventory(first, second),
+            snapshot_id="snap_test",
+            resource_ids=["res_a", "res_b"],
+            mode="delete",
+            now=NOW,
+        )
+
+        self.assertTrue(plan["canExecute"])
+        self.assertEqual(plan["operations"]["unlinkFiles"], [
+            "/mnt/sdc/downloads/completed/A.mkv",
+            "/mnt/sdc/downloads/completed/B.mkv",
+        ])
+        self.assertTrue(
+            all(not item["sharedResourceIds"] for item in plan["resources"])
+        )
+
     def test_delete_blocks_when_moviepilot_index_source_is_unavailable(self):
         selected = resource("res_a")
         selected["moviepilotIndexSourceAvailable"] = False
