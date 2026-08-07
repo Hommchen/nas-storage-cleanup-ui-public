@@ -90,6 +90,23 @@ def _inode_accounting(
     return complete, sum(unique_sizes.values())
 
 
+def _resource_inodes(resource: dict[str, Any]) -> set[tuple[int, int]]:
+    """Return the existing hard-link identities owned by a resource."""
+
+    result: set[tuple[int, int]] = set()
+    for item in resource.get("cleanupFiles") or []:
+        if not item.get("exists"):
+            continue
+        try:
+            dev = int(item.get("dev") or 0)
+            inode = int(item.get("inode") or 0)
+        except (TypeError, ValueError):
+            continue
+        if dev > 0 and inode > 0:
+            result.add((dev, inode))
+    return result
+
+
 def build_plan(
     inventory: dict[str, Any],
     *,
@@ -176,6 +193,16 @@ def build_plan(
         )
 
     resources_by_id = inventory.get("resources") or {}
+    selected_id_set = set(resource_ids)
+    inode_owners: dict[tuple[int, int], set[str]] = defaultdict(set)
+    resource_inodes: dict[str, set[tuple[int, int]]] = {}
+    for owner_id, owner in resources_by_id.items():
+        if not isinstance(owner, dict):
+            continue
+        inodes = _resource_inodes(owner)
+        resource_inodes[str(owner_id)] = inodes
+        for inode in inodes:
+            inode_owners[inode].add(str(owner_id))
     selected_resources: list[dict[str, Any]] = []
     qb_tasks_by_hash: dict[str, dict[str, Any]] = {}
     files_by_path: dict[str, dict[str, Any]] = {}
@@ -195,6 +222,18 @@ def build_plan(
 
         resource_blocks: list[dict[str, str]] = []
         resource_warnings: list[dict[str, str]] = []
+        shared_resource_ids = (
+            sorted(
+                {
+                    owner_id
+                    for inode in resource_inodes.get(resource_id, set())
+                    for owner_id in inode_owners.get(inode, set())
+                    if owner_id != resource_id and owner_id not in selected_id_set
+                }
+            )
+            if mode == "delete"
+            else []
+        )
         tasks = resource.get("qbTasks") or []
         moviepilot_indexes = resource.get("moviepilotIndexes") or []
         if (
@@ -270,6 +309,24 @@ def build_plan(
                         )
                         continue
                     moviepilot_indexes_by_id.setdefault(index_id, index)
+
+        if mode == "delete" and shared_resource_ids:
+            shared_labels = []
+            for shared_id in shared_resource_ids[:4]:
+                shared = resources_by_id.get(shared_id) or {}
+                label = str(shared.get("title") or shared_id)
+                edition = str(shared.get("edition") or "").strip()
+                shared_labels.append(f"{label}（{edition}）" if edition else label)
+            label_text = "、".join(shared_labels)
+            if len(shared_resource_ids) > len(shared_labels):
+                label_text += f"等 {len(shared_resource_ids)} 项"
+            _add_reason(
+                resource_blocks,
+                "shared_hardlink_resource",
+                "该资源与未选中的其他资源"
+                + (f"（{label_text}）" if label_text else "")
+                + "共享硬链接，不能单独完整删除；请同时选择关联资源后重新生成计划。",
+            )
 
         private_tasks = [task for task in tasks if task.get("private")]
         if private_tasks:
@@ -409,6 +466,7 @@ def build_plan(
                     ]
                 ),
                 "moviepilotIndexCount": len(moviepilot_indexes),
+                "sharedResourceIds": shared_resource_ids,
                 "blocked": bool(resource_blocks),
                 "blocks": resource_blocks,
                 "warnings": resource_warnings,
@@ -445,6 +503,13 @@ def build_plan(
         "acknowledgeSiteRisk": acknowledge_site_risk,
         "qbTaskHashes": sorted(qb_tasks_by_hash),
         "moviepilotIndexIds": sorted(moviepilot_indexes_by_id),
+        "sharedResourceIds": sorted(
+            {
+                owner_id
+                for item in selected_resources
+                for owner_id in item.get("sharedResourceIds") or []
+            }
+        ),
         "fileStates": sorted(
             (
                 path,
