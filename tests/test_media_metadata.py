@@ -478,6 +478,58 @@ class MediaMetadataTests(unittest.TestCase):
         self.assertTrue(all(not item["episodeIncomplete"] for item in merged))
         self.assertTrue(all(item["episodeMissingEpisodes"] == [] for item in merged))
 
+    def test_public_resource_exposes_cross_resource_shared_hardlink_summary(self):
+        first = raw_resource(
+            resource_id="res_shared_a",
+            title="共享资源甲",
+            english="Shared Resource A",
+            edition="S01 · 1 集",
+            media_type="电视剧",
+            year="2026",
+            private=private_record(
+                identity="tv:path:/allowed/shared-a",
+                task_hash="s" * 40,
+                path="/allowed/shared-a/e01.mkv",
+                inode=900,
+                scope="S01",
+            ),
+            library=True,
+        )
+        second = raw_resource(
+            resource_id="res_shared_b",
+            title="共享资源乙",
+            english="Shared Resource B",
+            edition="S01 · 1 集",
+            media_type="电视剧",
+            year="2026",
+            private=private_record(
+                identity="tv:path:/allowed/shared-b",
+                task_hash="t" * 40,
+                path="/allowed/shared-b/e01.mkv",
+                inode=900,
+                scope="S01",
+            ),
+            library=True,
+        )
+
+        merged, _ = enrich_and_merge_resources([first, second], {})
+
+        self.assertEqual(len(merged), 2)
+        by_title = {item["title"]: item for item in merged}
+        first_related = by_title["共享资源甲"]["sharedHardlinkResources"]
+        second_related = by_title["共享资源乙"]["sharedHardlinkResources"]
+        self.assertEqual(len(first_related), 1)
+        self.assertEqual(first_related[0]["id"], by_title["共享资源乙"]["id"])
+        self.assertEqual(first_related[0]["title"], "共享资源乙")
+        self.assertEqual(
+            first_related[0]["edition"],
+            by_title["共享资源乙"]["edition"],
+        )
+        self.assertEqual(len(second_related), 1)
+        self.assertEqual(second_related[0]["id"], by_title["共享资源甲"]["id"])
+        self.assertNotIn("path", first_related[0])
+        self.assertNotIn("inode", first_related[0])
+
     def test_tv_episode_completeness_stays_unknown_without_expected(self):
         resource = raw_resource(
             resource_id="res_tv_unknown",

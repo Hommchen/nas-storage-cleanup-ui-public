@@ -29,6 +29,15 @@ type SeedTask = {
   count?: number;
 };
 
+type SharedHardlinkResource = {
+  id: string;
+  title: string;
+  englishTitle: string;
+  edition: string;
+  protected: boolean;
+  metadataVerified?: boolean;
+};
+
 type Resource = {
   id: string;
   title: string;
@@ -59,6 +68,7 @@ type Resource = {
   impactTitle: string;
   impactDetail: string;
   lockReason?: string;
+  sharedHardlinkResources?: SharedHardlinkResource[];
 };
 
 type Snapshot = {
@@ -689,6 +699,14 @@ export default function Home() {
         ? current.filter((id) => id !== item.id)
         : [...current, item.id],
     );
+  };
+
+  const selectSharedResources = (item: Resource) => {
+    const relatedIds = (item.sharedHardlinkResources || [])
+      .map((related) => related.id)
+      .filter((id) => resources.some((candidate) => candidate.id === id && !candidate.protected));
+    if (!relatedIds.length) return;
+    setSelected((current) => [...new Set([...current, ...relatedIds])]);
   };
 
   const isFilterActive = (group: FilterGroupId, option: string) =>
@@ -1324,6 +1342,34 @@ export default function Home() {
                         <span>锁定原因：{item.lockReason}</span>
                       ) : null}
                       <span>{item.impactDetail}</span>
+                      {item.sharedHardlinkResources?.length ? (
+                        <div className="shared-hardlink-impact">
+                          <strong>共享硬链接影响</strong>
+                          <span>
+                            与 {item.sharedHardlinkResources.slice(0, 3).map((related) => (
+                              `${related.title}${related.edition ? `（${related.edition}）` : ""}${related.protected ? " · 锁定" : ""}`
+                            )).join("、")}
+                            {item.sharedHardlinkResources.length > 3
+                              ? ` 等 ${item.sharedHardlinkResources.length} 项`
+                              : ""}
+                            共用文件；完整删除需同时纳入并重新预演。
+                          </span>
+                          {item.sharedHardlinkResources.some((related) => {
+                            const candidate = resources.find((resource) => resource.id === related.id);
+                            return candidate && !candidate.protected;
+                          }) ? (
+                            <button
+                              type="button"
+                              className="shared-hardlink-button"
+                              onClick={() => selectSharedResources(item)}
+                            >
+                              加入可选关联资源
+                            </button>
+                          ) : (
+                            <span>关联资源含锁定项，不能单独清理。</span>
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </article>

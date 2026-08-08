@@ -33,6 +33,9 @@ class FrontendContractTests(unittest.TestCase):
             self.assertIn("requiresMissingFileAcknowledgement", source)
             self.assertIn("缺失的必需视频文件不会被", source)
             self.assertIn("不含已确认缺失入口", source)
+            self.assertIn("sharedHardlinkResources", source)
+            self.assertIn("共享硬链接影响", source)
+            self.assertIn("加入可选关联资源", source)
 
 
 if __name__ == "__main__":
