@@ -439,6 +439,92 @@ class ActionPlannerTests(unittest.TestCase):
         self.assertNotIn("/mnt/sdc/", serialized)
         self.assertNotIn("bbbbbbbb", serialized)
 
+    def test_delete_can_acknowledge_one_verified_missing_qb_video(self):
+        selected = resource(
+            "res_missing_ack",
+            tasks=[task(task_hash="c" * 40)],
+            file_path="/mnt/sdc/downloads/completed/Example/Example-E01.mkv",
+        )
+        missing_path = (
+            "/mnt/sdc/downloads/completed/Example/Example.S01E28.mkv"
+        )
+        selected["cleanupFiles"].append(
+            {
+                "path": missing_path,
+                "source": "qb",
+                "allowed": True,
+                "exists": False,
+                "regular": False,
+                "relativeSafe": True,
+                "required": True,
+                "qbExpectedSize": 570891555,
+                "qbProgress": 1,
+            }
+        )
+        source = inventory(selected)
+
+        plan = build_plan(
+            source,
+            snapshot_id="snap_test",
+            resource_ids=["res_missing_ack"],
+            mode="delete",
+            acknowledge_site_risk=True,
+            acknowledge_missing_files=True,
+            now=NOW,
+        )
+        public = public_plan(plan)
+
+        self.assertTrue(plan["canExecute"])
+        self.assertEqual(
+            plan["confirmPhrase"], "完整删除 1 项（已确认缺失 1 个文件）"
+        )
+        self.assertIn(
+            "missing_required_file_acknowledged",
+            {item["code"] for item in plan["warnings"]},
+        )
+        self.assertNotIn(missing_path, plan["operations"]["unlinkFiles"])
+        self.assertEqual(
+            plan["missingFileExpectations"][missing_path]["qbProgress"],
+            1,
+        )
+        self.assertEqual(public["estimatedReclaimBytes"], 1024)
+        self.assertNotIn("missingFileExpectations", public)
+        self.assertNotIn(missing_path, json.dumps(public, ensure_ascii=False))
+
+    def test_missing_file_ack_stays_blocked_for_unverified_sidecar(self):
+        selected = resource(
+            "res_bad_missing_ack",
+            tasks=[task(task_hash="d" * 40)],
+        )
+        selected["cleanupFiles"].append(
+            {
+                "path": "/mnt/sdc/downloads/completed/Example/Example.nfo",
+                "source": "qb",
+                "allowed": True,
+                "exists": False,
+                "regular": False,
+                "relativeSafe": True,
+                "required": True,
+                "qbExpectedSize": 128,
+                "qbProgress": 1,
+            }
+        )
+        plan = build_plan(
+            inventory(selected),
+            snapshot_id="snap_test",
+            resource_ids=["res_bad_missing_ack"],
+            mode="delete",
+            acknowledge_site_risk=True,
+            acknowledge_missing_files=True,
+            now=NOW,
+        )
+
+        self.assertFalse(plan["canExecute"])
+        self.assertIn(
+            "missing_file_not_confirmable",
+            {item["code"] for item in plan["blocks"]},
+        )
+
     def test_delete_rejects_paths_outside_allowlist(self):
         outside = resource("res_a", file_path="/etc/passwd")
         outside["cleanupFiles"][0]["allowed"] = False

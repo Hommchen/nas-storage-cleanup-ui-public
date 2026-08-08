@@ -264,6 +264,7 @@ class RemoteExecutorSimulationTests(unittest.TestCase):
         include_task=True,
         include_moviepilot_index=False,
         include_legacy=False,
+        missing_expectations=None,
     ):
         unlink_paths = [str(self.payload), str(self.library_payload)]
         if include_legacy:
@@ -314,6 +315,7 @@ class RemoteExecutorSimulationTests(unittest.TestCase):
                         if files
                         else {}
                     ),
+                    "missingFileExpectations": missing_expectations or {},
                 }
             ),
             text=True,
@@ -410,6 +412,53 @@ class RemoteExecutorSimulationTests(unittest.TestCase):
         self.assertNotIn(TASK_HASH, self.qb_state.tasks)
         self.assertFalse(self.payload.exists())
         self.assertFalse(self.library_payload.exists())
+
+    def test_delete_accepts_verified_missing_file_and_reports_it_separately(self):
+        missing_path = self.download / "Fixture.S01E28.mkv"
+        completed, result = self.run_executor(
+            "delete",
+            files=True,
+            missing_expectations={
+                str(missing_path): {
+                    "source": "qb",
+                    "qbExpectedSize": 570891555,
+                    "qbProgress": 1,
+                    "relativeSafe": True,
+                    "allowed": True,
+                    "required": True,
+                }
+            },
+        )
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["missingFilesAlreadyAbsent"], 1)
+        self.assertEqual(result["filesDeleted"], 2)
+        self.assertNotIn(TASK_HASH, self.qb_state.tasks)
+
+    def test_delete_fails_before_qb_change_if_acknowledged_file_reappears(self):
+        missing_path = self.download / "Fixture.S01E28.mkv"
+        missing_path.write_bytes(b"reappeared")
+        completed, result = self.run_executor(
+            "delete",
+            files=True,
+            missing_expectations={
+                str(missing_path): {
+                    "source": "qb",
+                    "qbExpectedSize": 570891555,
+                    "qbProgress": 1,
+                    "relativeSafe": True,
+                    "allowed": True,
+                    "required": True,
+                }
+            },
+        )
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertEqual(result["error"]["code"], "missing_file_reappeared")
+        self.assertIn(TASK_HASH, self.qb_state.tasks)
+        self.assertTrue(self.payload.exists())
+        self.assertTrue(self.library_payload.exists())
 
     def test_delete_includes_plan_registered_legacy_quarantine_hardlink(self):
         os.link(self.payload, self.legacy_payload)

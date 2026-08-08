@@ -29,6 +29,10 @@ class FrontendContractTests(unittest.TestCase):
             self.assertIn("未生成可执行操作", source)
             self.assertIn("关联影响仅供复核，不会执行", source)
             self.assertIn("missingFiles", source)
+            self.assertIn("acknowledgeMissingFiles", source)
+            self.assertIn("requiresMissingFileAcknowledgement", source)
+            self.assertIn("缺失的必需视频文件不会被", source)
+            self.assertIn("不含已确认缺失入口", source)
 
 
 if __name__ == "__main__":

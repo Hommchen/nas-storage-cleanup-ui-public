@@ -108,6 +108,105 @@ def _missing_file_details(resource: dict[str, Any]) -> list[dict[str, Any]]:
     return details
 
 
+VIDEO_SUFFIXES = frozenset(
+    {
+        ".avi",
+        ".divx",
+        ".flv",
+        ".m2ts",
+        ".m4v",
+        ".mkv",
+        ".mov",
+        ".mp4",
+        ".mpeg",
+        ".mpg",
+        ".ts",
+        ".webm",
+        ".wmv",
+    }
+)
+
+
+def _missing_file_state(item: dict[str, Any]) -> dict[str, Any]:
+    """Return the private, deterministic state for one missing file."""
+
+    raw_path = str(item.get("path") or "")
+    try:
+        expected_size = int(item.get("qbExpectedSize") or 0)
+    except (TypeError, ValueError):
+        expected_size = 0
+    try:
+        progress = float(item.get("qbProgress") or 0)
+    except (TypeError, ValueError):
+        progress = 0
+    return {
+        "path": raw_path,
+        "source": str(item.get("source") or ""),
+        "qbExpectedSize": expected_size,
+        "qbProgress": progress,
+        "relativeSafe": bool(item.get("relativeSafe")),
+        "allowed": bool(item.get("allowed")),
+        "legacyQuarantine": bool(item.get("legacyQuarantine")),
+        "required": bool(item.get("required")),
+    }
+
+
+def _confirmable_missing_files(
+    resource: dict[str, Any],
+    missing_required_files: list[dict[str, Any]],
+    *,
+    allowed_roots: tuple[PurePosixPath, ...] | list[str] | None = None,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Validate the deliberately narrow missing-file acknowledgement path.
+
+    A missing entry may be acknowledged only when it is a completed qB video
+    from a verified exact file list and its path is still inside a configured
+    cleanup root.  Missing library metadata, sidecars and ambiguous paths stay
+    fail-closed; they are not safe substitutes for an existing file check.
+    """
+
+    if not missing_required_files:
+        return [], []
+    if len(missing_required_files) > 1:
+        return [], ["一次最多确认一个缺失的必需文件。"]
+    if resource.get("qbFileListsVerified") is not True:
+        return [], ["qB 逐文件清单尚未验证。"]
+    completed_verified_task = any(
+        task.get("fileListVerified") is True
+        and float(task.get("progress") or 0) >= 0.999999
+        for task in (resource.get("qbTasks") or [])
+    )
+    if not completed_verified_task:
+        return [], ["缺失文件没有对应的已完成 qB 逐文件清单。"]
+
+    expectations: list[dict[str, Any]] = []
+    reasons: list[str] = []
+    for item in missing_required_files:
+        state = _missing_file_state(item)
+        path = str(state["path"])
+        suffix = PurePosixPath(path).suffix.casefold()
+        path_allowed = path_is_allowed(path, allowed_roots=allowed_roots)
+        legacy_allowed = bool(
+            state["legacyQuarantine"]
+            and "/.media-quarantine/" in path
+        )
+        if state["source"] != "qb":
+            reasons.append("缺失项不是 qB 逐文件清单中的视频文件。")
+        elif suffix not in VIDEO_SUFFIXES:
+            reasons.append("缺失项不是可安全确认的视频文件。")
+        if not state["relativeSafe"]:
+            reasons.append("缺失项包含不安全的 qB 相对路径。")
+        if not path_allowed and not legacy_allowed:
+            reasons.append("缺失项路径不在允许清理目录内。")
+        if state["qbExpectedSize"] <= 0:
+            reasons.append("缺失项没有可信的 qB 期望大小。")
+        if state["qbProgress"] < 0.999999:
+            reasons.append("缺失项对应的 qB 任务并未完成。")
+        if not reasons:
+            expectations.append(state)
+    return expectations, reasons
+
+
 def _inode_accounting(
     resource: dict[str, Any],
     field: str = "cleanupFiles",
@@ -153,6 +252,7 @@ def build_plan(
     resource_ids: list[str],
     mode: str,
     acknowledge_site_risk: bool = False,
+    acknowledge_missing_files: bool = False,
     allowed_roots: tuple[PurePosixPath, ...] | list[str] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -160,6 +260,8 @@ def build_plan(
 
     if mode not in VALID_MODES:
         raise PlanInputError(f"unsupported mode: {mode}")
+    if mode != "delete":
+        acknowledge_missing_files = False
     if not snapshot_id:
         raise PlanInputError("snapshotId is required")
     if not resource_ids:
@@ -245,9 +347,12 @@ def build_plan(
     selected_resources: list[dict[str, Any]] = []
     qb_tasks_by_hash: dict[str, dict[str, Any]] = {}
     files_by_path: dict[str, dict[str, Any]] = {}
+    missing_file_states_by_path: dict[str, dict[str, Any]] = {}
+    missing_file_expectations_by_path: dict[str, dict[str, Any]] = {}
     moviepilot_indexes_by_id: dict[int, dict[str, Any]] = {}
     reclaim_inodes: dict[tuple[int, int], int] = {}
     requires_site_ack = False
+    requires_missing_file_ack = False
 
     for resource_id in resource_ids:
         resource = resources_by_id.get(resource_id)
@@ -406,6 +511,16 @@ def build_plan(
             existing_files = [
                 item for item in cleanup_files if item.get("exists")
             ]
+            missing_required_files = [
+                item
+                for item in cleanup_files
+                if item.get("required") and not item.get("exists")
+            ]
+            for item in missing_required_files:
+                state = _missing_file_state(item)
+                path = str(state["path"])
+                if path:
+                    missing_file_states_by_path[path] = state
             if tasks and not resource.get("qbFileListsVerified"):
                 _add_reason(
                     resource_blocks,
@@ -418,15 +533,38 @@ def build_plan(
                     "unverified_library_scan",
                     "媒体库目录未能完整扫描，禁止继续删除。",
                 )
-            if any(
-                item.get("required") and not item.get("exists")
-                for item in cleanup_files
-            ):
-                _add_reason(
-                    resource_blocks,
-                    "required_file_missing",
-                    "qB 或媒体库声明的完整文件已经缺失，请先刷新并核对。",
-                )
+            if missing_required_files:
+                requires_missing_file_ack = True
+                if acknowledge_missing_files:
+                    confirmable, reasons = _confirmable_missing_files(
+                        resource,
+                        missing_required_files,
+                        allowed_roots=allowed_roots,
+                    )
+                    if reasons:
+                        _add_reason(
+                            resource_blocks,
+                            "missing_file_not_confirmable",
+                            "缺失文件未通过安全例外核验，仍禁止完整删除。"
+                            + " "
+                            + "、".join(reasons),
+                        )
+                    else:
+                        for state in confirmable:
+                            missing_file_expectations_by_path[
+                                str(state["path"])
+                            ] = state
+                        _add_reason(
+                            resource_warnings,
+                            "missing_required_file_acknowledged",
+                            "已确认必需视频文件存在缺失；本次只清理仍存在且已核验的任务、文件和媒体索引，缺失入口不计释放量。",
+                        )
+                else:
+                    _add_reason(
+                        resource_blocks,
+                        "required_file_missing",
+                        "qB 或媒体库声明的完整文件已经缺失，请先刷新并核对；如确认继续清理，请勾选缺失文件确认。",
+                    )
             if any(
                 item.get("exists") and not item.get("regular")
                 for item in cleanup_files
@@ -541,6 +679,20 @@ def build_plan(
         "mode": mode,
         "resourceIds": sorted(resource_ids),
         "acknowledgeSiteRisk": acknowledge_site_risk,
+        "acknowledgeMissingFiles": acknowledge_missing_files,
+        "missingFileStates": sorted(
+            (
+                path,
+                state.get("source"),
+                state.get("qbExpectedSize"),
+                state.get("qbProgress"),
+                state.get("relativeSafe"),
+                state.get("allowed"),
+                state.get("legacyQuarantine"),
+                state.get("required"),
+            )
+            for path, state in missing_file_states_by_path.items()
+        ),
         "qbTaskHashes": sorted(qb_tasks_by_hash),
         "moviepilotIndexIds": sorted(moviepilot_indexes_by_id),
         "sharedResourceIds": sorted(
@@ -563,6 +715,9 @@ def build_plan(
     }
     plan_id = "plan_" + _canonical_digest(plan_material)[:24]
     confirm_phrase = f"{MODE_LABELS[mode]} {len(selected_resources)} 项"
+    missing_count = len(missing_file_states_by_path)
+    if mode == "delete" and acknowledge_missing_files and missing_count:
+        confirm_phrase += f"（已确认缺失 {missing_count} 个文件）"
 
     return {
         "planVersion": PLAN_VERSION,
@@ -576,6 +731,8 @@ def build_plan(
         "canExecute": not blocks,
         "requiresSiteAcknowledgement": requires_site_ack,
         "acknowledgeSiteRisk": acknowledge_site_risk,
+        "requiresMissingFileAcknowledgement": requires_missing_file_ack,
+        "acknowledgeMissingFiles": acknowledge_missing_files,
         "estimatedReclaimBytes": sum(reclaim_inodes.values())
         if mode == "delete"
         else 0,
@@ -588,6 +745,21 @@ def build_plan(
                 for key in ("dev", "inode", "size", "nlink")
             }
             for path, item in sorted(files_by_path.items())
+        },
+        "missingFileExpectations": {
+            path: {
+                key: state.get(key)
+                for key in (
+                    "source",
+                    "qbExpectedSize",
+                    "qbProgress",
+                    "relativeSafe",
+                    "allowed",
+                    "legacyQuarantine",
+                    "required",
+                )
+            }
+            for path, state in sorted(missing_file_expectations_by_path.items())
         },
         "operations": {
             "qbStop": sorted(qb_tasks_by_hash) if mode == "pause" else [],
@@ -613,7 +785,11 @@ def public_plan(plan: dict[str, Any]) -> dict[str, Any]:
     result = {
         key: value
         for key, value in plan.items()
-        if key not in {"operations", "fileExpectations"}
+        if key not in {
+            "operations",
+            "fileExpectations",
+            "missingFileExpectations",
+        }
     }
     result["operationCounts"] = {
         "qbStop": len(plan["operations"]["qbStop"]),
