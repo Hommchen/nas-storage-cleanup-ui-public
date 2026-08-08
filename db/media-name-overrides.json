@@ -2,6 +2,16 @@
   "version": 1,
   "entries": [
     {
+      "query": "Unsettled Case",
+      "kind": "tv",
+      "title": "悬案",
+      "englishTitle": "Unsettled Case",
+      "year": "2026",
+      "identity": "tv:manual:unsettled-case-2026",
+      "source": "https://www.themoviedb.org/tv/273114",
+      "verifiedAt": "2026-08-08T18:06:00+08:00"
+    },
+    {
       "query": "THE GIRL WITH ALL THE GIFTS iso",
       "kind": "movie",
       "title": "天赐之女",
