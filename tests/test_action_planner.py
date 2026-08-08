@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 import sys
 import unittest
@@ -388,6 +389,55 @@ class ActionPlannerTests(unittest.TestCase):
             "unknown_hardlinks",
             {item["code"] for item in plan["blocks"]},
         )
+
+    def test_public_delete_plan_exposes_safe_missing_file_details(self):
+        selected = resource(
+            "res_missing",
+            tasks=[task(task_hash="b" * 40)],
+            file_path="/mnt/sdc/downloads/completed/Example/Example-E01.mkv",
+        )
+        selected["cleanupFiles"].append(
+            {
+                "path": "/mnt/sdc/downloads/completed/Example/Example.S01E28.mkv",
+                "source": "qb",
+                "allowed": True,
+                "exists": False,
+                "regular": True,
+                "relativeSafe": True,
+                "required": True,
+                "qbExpectedSize": 570891555,
+            }
+        )
+
+        plan = build_plan(
+            inventory(selected),
+            snapshot_id="snap_test",
+            resource_ids=["res_missing"],
+            mode="delete",
+            acknowledge_site_risk=True,
+            now=NOW,
+        )
+        public = public_plan(plan)
+
+        self.assertFalse(public["canExecute"])
+        self.assertEqual(public["estimatedReclaimBytes"], 0)
+        self.assertEqual(public["operationCounts"]["qbRemoveKeepFiles"], 1)
+        self.assertIn(
+            "required_file_missing",
+            {item["code"] for item in public["blocks"]},
+        )
+        self.assertEqual(
+            public["resources"][0]["missingFiles"],
+            [{
+                "source": "qB 任务",
+                "name": "Example.S01E28.mkv",
+                "episode": "S01E28",
+                "expectedSizeBytes": 570891555,
+            }],
+        )
+        serialized = json.dumps(public, ensure_ascii=False)
+        self.assertNotIn("/mnt/sdc/", serialized)
+        self.assertNotIn("bbbbbbbb", serialized)
 
     def test_delete_rejects_paths_outside_allowlist(self):
         outside = resource("res_a", file_path="/etc/passwd")

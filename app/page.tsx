@@ -40,7 +40,12 @@ type Resource = {
   sizeLabel: string;
   reclaimLabel: string;
   library: boolean;
-  incomplete?: boolean;
+  episodeStatus?: string;
+  episodeIncomplete?: boolean;
+  episodeActual?: number | null;
+  episodeExpected?: number | null;
+  episodeMissing?: number | null;
+  episodeMissingEpisodes?: string[] | null;
   hr: boolean;
   hrPending?: boolean;
   brush: boolean;
@@ -94,6 +99,13 @@ type PlanIssue = {
   message: string;
 };
 
+type MissingFileDetail = {
+  source: string;
+  name: string;
+  episode?: string;
+  expectedSizeBytes?: number;
+};
+
 type PlannedResource = {
   id: string;
   title: string;
@@ -105,6 +117,7 @@ type PlannedResource = {
   blocked: boolean;
   blocks: PlanIssue[];
   warnings: PlanIssue[];
+  missingFiles?: MissingFileDetail[];
 };
 
 type PublicPlan = {
@@ -261,8 +274,15 @@ function matchesFilter(item: Resource, filter: LegacyFilter) {
 
 function isIncompleteTv(item: Resource) {
   if (item.type !== "电视剧") return false;
-  const libraryText = `${item.edition || ""} ${item.librarySummary || ""} ${item.libraryDetail || ""}`;
-  return item.incomplete === true || !item.library || /未入库/.test(libraryText);
+  return item.episodeIncomplete === true;
+}
+
+function episodeGapLabel(item: Resource) {
+  if (!item.episodeIncomplete && item.episodeStatus !== "incomplete") return "";
+  const missing = Number(item.episodeMissing || 0);
+  const episodes = item.episodeMissingEpisodes?.filter(Boolean) || [];
+  const detail = episodes.length ? `（${episodes.join("、")}）` : "";
+  return `缺 ${missing} 集${detail}`;
 }
 
 function matchesFilterState(item: Resource, state: FilterState) {
@@ -1241,6 +1261,9 @@ export default function Home() {
                     <div className="library-cell">
                       <strong>{item.librarySummary}</strong>
                       <span>{item.libraryDetail}</span>
+                      {episodeGapLabel(item) ? (
+                        <span>{episodeGapLabel(item)}</span>
+                      ) : null}
                     </div>
 
                     <div className="seed-cell">
@@ -1640,7 +1663,9 @@ export default function Home() {
             <div className={`level-explain ${actionMode}`}>
               <strong>
                 {plan && actionMode === "delete"
-                  ? `已核算可释放 ${formatBytes(plan.estimatedReclaimBytes)}`
+                  ? plan.canExecute
+                    ? `已核算可释放 ${formatBytes(plan.estimatedReclaimBytes)}`
+                    : "安全可释放暂不可核算"
                   : actionSummary(actionMode, selectedSize)}
               </strong>
               <span>
@@ -1684,24 +1709,36 @@ export default function Home() {
                     <strong>
                       {plan.canExecute ? "安全预演通过" : "计划已被安全门禁拦截"}
                     </strong>
-                    <span>
-                      {[
-                        plan.operationCounts.qbStop
-                          ? `停止 ${plan.operationCounts.qbStop} 个 qB 任务`
-                          : "",
-                        plan.operationCounts.qbRemoveKeepFiles
-                          ? `移除 ${plan.operationCounts.qbRemoveKeepFiles} 个 qB 任务`
-                          : "",
-                        plan.operationCounts.unlinkFiles
-                          ? `精确解除 ${plan.operationCounts.unlinkFiles} 个文件入口`
-                          : "",
+                    {plan.canExecute ? (
+                      <span>
+                        {[
+                          plan.operationCounts.qbStop
+                            ? `停止 ${plan.operationCounts.qbStop} 个 qB 任务`
+                            : "",
+                          plan.operationCounts.qbRemoveKeepFiles
+                            ? `移除 ${plan.operationCounts.qbRemoveKeepFiles} 个 qB 任务`
+                            : "",
+                          plan.operationCounts.unlinkFiles
+                            ? `精确解除 ${plan.operationCounts.unlinkFiles} 个文件入口`
+                            : "",
+                          plan.operationCounts.moviepilotIndexes
+                            ? `清理 ${plan.operationCounts.moviepilotIndexes} 条 MoviePilot 媒体索引`
+                            : "",
+                        ]
+                          .filter(Boolean)
+                          .join("，") || "无可执行操作"}
+                      </span>
+                    ) : (
+                      <span>
+                        未生成可执行操作
+                        {plan.operationCounts.qbStop ||
+                        plan.operationCounts.qbRemoveKeepFiles ||
+                        plan.operationCounts.unlinkFiles ||
                         plan.operationCounts.moviepilotIndexes
-                          ? `清理 ${plan.operationCounts.moviepilotIndexes} 条 MoviePilot 媒体索引`
-                          : "",
-                      ]
-                        .filter(Boolean)
-                        .join("，")}
-                    </span>
+                          ? "；下列关联影响仅供复核，不会执行"
+                          : ""}
+                      </span>
+                    )}
                   </div>
 
                   {!!plan.blocks.length && (
@@ -1709,6 +1746,24 @@ export default function Home() {
                       {plan.blocks.map((issue) => (
                         <li key={issue.code}>{issue.message}</li>
                       ))}
+                    </ul>
+                  )}
+                  {plan.resources.some((item) => item.missingFiles?.length) && (
+                    <ul className="plan-issues blocked">
+                      {plan.resources.flatMap((item) =>
+                        (item.missingFiles || []).map((missing) => (
+                          <li
+                            key={`${item.id}-missing-${missing.episode || missing.name}-${missing.source}`}
+                          >
+                            缺失 {missing.episode ? `${missing.episode} · ` : ""}
+                            {missing.name}（来源：{missing.source}
+                            {missing.expectedSizeBytes
+                              ? `，应有 ${formatBytes(missing.expectedSizeBytes)}`
+                              : ""}
+                            ）
+                          </li>
+                        )),
+                      )}
                     </ul>
                   )}
                   {!!plan.warnings.length && (
