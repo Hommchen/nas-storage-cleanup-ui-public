@@ -621,6 +621,43 @@ class MediaMetadataTests(unittest.TestCase):
         self.assertTrue(all(entry["kind"] == "tv" for entry in entries))
         self.assertTrue(all(entry["identity"] == "tv:manual:anne-happy-2016" for entry in entries))
 
+    def test_unsettled_case_override_unlocks_exact_library_alias(self):
+        item = raw_resource(
+            resource_id="res_unsettled_case",
+            title="Unsettled Case",
+            english="Unsettled Case",
+            edition="S01 · 9 集",
+            media_type="电视剧",
+            year="",
+            private=private_record(
+                identity="resource:unsettled-case",
+                task_hash="u" * 40,
+                path="/allowed/tv/unsettled-case/e01.mkv",
+                inode=902,
+                scope="S01",
+            ),
+            library=True,
+        )
+        overrides = json.loads(
+            (
+                Path(__file__).resolve().parents[1]
+                / "db/media-name-overrides.json"
+            ).read_text(encoding="utf-8")
+        )
+
+        cache, applied = apply_metadata_overrides(
+            [item], {"version": 1, "entries": {}}, overrides
+        )
+        merged, _ = enrich_and_merge_resources([item], cache)
+
+        self.assertEqual(applied, 1)
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["title"], "悬案")
+        self.assertEqual(merged[0]["englishTitle"], "Unsettled Case")
+        self.assertEqual(merged[0]["year"], "2026")
+        self.assertTrue(merged[0]["metadataVerified"])
+        self.assertFalse(merged[0]["protected"])
+
     def test_merge_preserves_moviepilot_index_identity(self):
         index = {
             "id": 188,
