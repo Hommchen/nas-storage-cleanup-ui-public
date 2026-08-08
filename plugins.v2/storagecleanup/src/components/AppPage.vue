@@ -290,6 +290,14 @@ function toggle(item) {
     : [...selected.value, item.id]
 }
 
+function selectSharedResources(item) {
+  const relatedIds = (item.sharedHardlinkResources || [])
+    .map(related => related.id)
+    .filter(id => resources.value.some(candidate => candidate.id === id && !candidate.protected))
+  if (!relatedIds.length) return
+  selected.value = [...new Set([...selected.value, ...relatedIds])]
+}
+
 function toggleVisible() {
   const ids = visible.value.filter(item => !item.protected).map(item => item.id)
   selected.value = allVisibleSelected.value
@@ -751,6 +759,24 @@ onUnmounted(stopRefreshTimer)
           <strong>{{ item.impactTitle }}</strong>
           <span v-if="item.protected && item.lockReason">锁定原因：{{ item.lockReason }}</span>
           <span>{{ item.impactDetail }}</span>
+          <div v-if="item.sharedHardlinkResources?.length" class="shared-hardlink-impact">
+            <strong>共享硬链接影响</strong>
+            <span>
+              与
+              {{ item.sharedHardlinkResources.slice(0, 3).map(related => `${related.title}${related.edition ? `（${related.edition}）` : ''}${related.protected ? ' · 锁定' : ''}`).join('、') }}
+              {{ item.sharedHardlinkResources.length > 3 ? `等 ${item.sharedHardlinkResources.length} 项` : '' }}
+              共用文件；完整删除需同时纳入并重新预演。
+            </span>
+            <button
+              v-if="item.sharedHardlinkResources.some(related => resources.some(candidate => candidate.id === related.id && !candidate.protected))"
+              type="button"
+              class="shared-hardlink-button"
+              @click="selectSharedResources(item)"
+            >
+              加入可选关联资源
+            </button>
+            <span v-else>关联资源含锁定项，不能单独清理。</span>
+          </div>
         </div>
       </article>
 
@@ -1231,6 +1257,11 @@ button { color: inherit; }
 .impact { display: grid; gap: 4px; min-width: 0; padding-left: 10px; border-left: 2px solid rgba(22, 131, 107, .35); overflow-wrap: anywhere; word-break: break-word; }
 .impact strong { font-size: 13px; }
 .impact span { overflow-wrap: anywhere; word-break: break-word; }
+.shared-hardlink-impact { display: grid; gap: 3px; margin-top: 6px; padding: 7px 8px; border: 1px solid rgba(196, 75, 71, .22); border-radius: 8px; background: rgba(196, 75, 71, .06); }
+.shared-hardlink-impact strong { color: var(--danger); font-size: 12px; }
+.shared-hardlink-impact span { color: var(--muted); font-size: 11px; }
+.shared-hardlink-button { justify-self: start; padding: 3px 7px; border: 1px solid rgba(63, 112, 183, .38); border-radius: 6px; color: #315f9e; background: rgba(63, 112, 183, .08); font-size: 11px; cursor: pointer; }
+.shared-hardlink-button:hover { background: rgba(63, 112, 183, .16); }
 .impact.danger { border-color: rgba(196, 75, 71, .5); }
 .impact.danger strong { color: var(--danger); }
 .empty-state { display: grid; place-items: center; min-height: 150px; color: var(--muted); }

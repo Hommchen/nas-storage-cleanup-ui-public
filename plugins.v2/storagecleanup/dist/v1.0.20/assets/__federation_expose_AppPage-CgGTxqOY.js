@@ -312,88 +312,85 @@ const _hoisted_32 = {
 };
 const _hoisted_33 = { key: 0 };
 const _hoisted_34 = {
+  key: 1,
+  class: "shared-hardlink-impact"
+};
+const _hoisted_35 = ["onClick"];
+const _hoisted_36 = { key: 1 };
+const _hoisted_37 = {
   key: 2,
   class: "empty-state"
 };
-const _hoisted_35 = {
+const _hoisted_38 = {
   key: 0,
   class: "action-bar"
 };
-const _hoisted_36 = { class: "selected-count" };
-const _hoisted_37 = { class: "action-buttons" };
-const _hoisted_38 = ["disabled", "title", "onClick"];
-const _hoisted_39 = {
+const _hoisted_39 = { class: "selected-count" };
+const _hoisted_40 = { class: "action-buttons" };
+const _hoisted_41 = ["disabled", "title", "onClick"];
+const _hoisted_42 = {
   class: "modal plan-modal",
   role: "dialog",
   "aria-modal": "true"
 };
-const _hoisted_40 = ["disabled"];
-const _hoisted_41 = { key: 0 };
-const _hoisted_42 = { key: 1 };
-const _hoisted_43 = { class: "plan-resources" };
-const _hoisted_44 = {
+const _hoisted_43 = ["disabled"];
+const _hoisted_44 = { key: 0 };
+const _hoisted_45 = { key: 1 };
+const _hoisted_46 = { class: "plan-resources" };
+const _hoisted_47 = {
   key: 0,
   class: "plan-state"
 };
-const _hoisted_45 = {
+const _hoisted_48 = {
   key: 1,
   class: "plan-state blocked"
 };
-const _hoisted_46 = { key: 0 };
-const _hoisted_47 = { key: 1 };
-const _hoisted_48 = { key: 0 };
-const _hoisted_49 = {
+const _hoisted_49 = { key: 0 };
+const _hoisted_50 = { key: 1 };
+const _hoisted_51 = { key: 0 };
+const _hoisted_52 = {
   key: 0,
   class: "issues blocked"
 };
-const _hoisted_50 = {
+const _hoisted_53 = {
   key: 1,
   class: "issues blocked"
 };
-const _hoisted_51 = {
+const _hoisted_54 = {
   key: 2,
   class: "issues warning"
 };
-const _hoisted_52 = {
+const _hoisted_55 = {
   key: 3,
   class: "risk-check"
 };
-const _hoisted_53 = ["checked"];
-const _hoisted_54 = {
+const _hoisted_56 = ["checked"];
+const _hoisted_57 = {
   key: 4,
   class: "risk-check missing-file-check"
 };
-const _hoisted_55 = ["checked"];
-const _hoisted_56 = {
+const _hoisted_58 = ["checked"];
+const _hoisted_59 = {
   key: 5,
   class: "plan-state blocked"
 };
-const _hoisted_57 = { class: "safety-note" };
-const _hoisted_58 = {
+const _hoisted_60 = { class: "safety-note" };
+const _hoisted_61 = {
   key: 3,
   class: "plan-state blocked"
 };
-const _hoisted_59 = {
+const _hoisted_62 = {
   key: 4,
   class: "execution-result"
 };
-const _hoisted_60 = { key: 0 };
-const _hoisted_61 = {
+const _hoisted_63 = { key: 0 };
+const _hoisted_64 = {
   key: 5,
   class: "final-confirmation"
 };
-const _hoisted_62 = ["disabled"];
-const _hoisted_63 = ["disabled"];
-const _hoisted_64 = ["disabled"];
-const _hoisted_65 = { class: "modal compact-modal" };
-const _hoisted_66 = {
-  key: 0,
-  class: "empty-state"
-};
-const _hoisted_67 = {
-  key: 1,
-  class: "plan-state blocked"
-};
+const _hoisted_65 = ["disabled"];
+const _hoisted_66 = ["disabled"];
+const _hoisted_67 = ["disabled"];
 const _hoisted_68 = { class: "modal compact-modal" };
 const _hoisted_69 = {
   key: 0,
@@ -403,14 +400,23 @@ const _hoisted_70 = {
   key: 1,
   class: "plan-state blocked"
 };
-const _hoisted_71 = ["onClick"];
-const _hoisted_72 = ["onClick"];
+const _hoisted_71 = { class: "modal compact-modal" };
+const _hoisted_72 = {
+  key: 0,
+  class: "empty-state"
+};
 const _hoisted_73 = {
+  key: 1,
+  class: "plan-state blocked"
+};
+const _hoisted_74 = ["onClick"];
+const _hoisted_75 = ["onClick"];
+const _hoisted_76 = {
   key: 2,
   class: "recovery-confirm"
 };
-const _hoisted_74 = ["disabled"];
-const _hoisted_75 = {
+const _hoisted_77 = ["disabled"];
+const _hoisted_78 = {
   class: "modal settings-modal",
   role: "dialog",
   "aria-modal": "true",
@@ -699,6 +705,14 @@ function toggle(item) {
   selected.value = selected.value.includes(item.id)
     ? selected.value.filter(id => id !== item.id)
     : [...selected.value, item.id];
+}
+
+function selectSharedResources(item) {
+  const relatedIds = (item.sharedHardlinkResources || [])
+    .map(related => related.id)
+    .filter(id => resources.value.some(candidate => candidate.id === id && !candidate.protected));
+  if (!relatedIds.length) return
+  selected.value = [...new Set([...selected.value, ...relatedIds])];
 }
 
 function toggleVisible() {
@@ -1199,20 +1213,34 @@ return (_ctx, _cache) => {
                 (item.protected && item.lockReason)
                   ? (_openBlock(), _createElementBlock("span", _hoisted_33, "锁定原因：" + _toDisplayString(item.lockReason), 1))
                   : _createCommentVNode("", true),
-                _createElementVNode("span", null, _toDisplayString(item.impactDetail), 1)
+                _createElementVNode("span", null, _toDisplayString(item.impactDetail), 1),
+                (item.sharedHardlinkResources?.length)
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_34, [
+                      _cache[33] || (_cache[33] = _createElementVNode("strong", null, "共享硬链接影响", -1)),
+                      _createElementVNode("span", null, " 与 " + _toDisplayString(item.sharedHardlinkResources.slice(0, 3).map(related => `${related.title}${related.edition ? `（${related.edition}）` : ''}${related.protected ? ' · 锁定' : ''}`).join('、')) + " " + _toDisplayString(item.sharedHardlinkResources.length > 3 ? `等 ${item.sharedHardlinkResources.length} 项` : '') + " 共用文件；完整删除需同时纳入并重新预演。 ", 1),
+                      (item.sharedHardlinkResources.some(related => resources.value.some(candidate => candidate.id === related.id && !candidate.protected)))
+                        ? (_openBlock(), _createElementBlock("button", {
+                            key: 0,
+                            type: "button",
+                            class: "shared-hardlink-button",
+                            onClick: $event => (selectSharedResources(item))
+                          }, " 加入可选关联资源 ", 8, _hoisted_35))
+                        : (_openBlock(), _createElementBlock("span", _hoisted_36, "关联资源含锁定项，不能单独清理。"))
+                    ]))
+                  : _createCommentVNode("", true)
               ], 2)
             ], 2))
           }), 128)),
       (!loading.value && !visible.value.length)
-        ? (_openBlock(), _createElementBlock("div", _hoisted_34, " 没有符合条件的资源，请取消筛选或更换关键词。 "))
+        ? (_openBlock(), _createElementBlock("div", _hoisted_37, " 没有符合条件的资源，请取消筛选或更换关键词。 "))
         : _createCommentVNode("", true)
     ]),
     (_openBlock(), _createBlock(_Teleport, { to: "body" }, [
       (selected.value.length)
-        ? (_openBlock(), _createElementBlock("aside", _hoisted_35, [
-            _createElementVNode("div", _hoisted_36, _toDisplayString(selected.value.length), 1),
+        ? (_openBlock(), _createElementBlock("aside", _hoisted_38, [
+            _createElementVNode("div", _hoisted_39, _toDisplayString(selected.value.length), 1),
             _createElementVNode("p", null, [
-              _cache[33] || (_cache[33] = _createElementVNode("strong", null, "已加入清理计划", -1)),
+              _cache[34] || (_cache[34] = _createElementVNode("strong", null, "已加入清理计划", -1)),
               _createElementVNode("span", null, "完整删除上限 " + _toDisplayString(_unref(formatGiB)(selectedSize.value)), 1)
             ]),
             _createElementVNode("button", {
@@ -1220,7 +1248,7 @@ return (_ctx, _cache) => {
               type: "button",
               onClick: _cache[3] || (_cache[3] = $event => (selected.value = []))
             }, "清空"),
-            _createElementVNode("div", _hoisted_37, [
+            _createElementVNode("div", _hoisted_40, [
               (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_unref(ACTIONS), (action, mode) => {
                 return (_openBlock(), _createElementBlock("button", {
                   key: mode,
@@ -1232,7 +1260,7 @@ return (_ctx, _cache) => {
                 }, [
                   _createElementVNode("strong", null, _toDisplayString(action.title), 1),
                   _createElementVNode("span", null, _toDisplayString(action.detail), 1)
-                ], 10, _hoisted_38))
+                ], 10, _hoisted_41))
               }), 128))
             ])
           ]))
@@ -1243,33 +1271,33 @@ return (_ctx, _cache) => {
             class: "modal-backdrop",
             onClick: _withModifiers(closePlan, ["self"])
           }, [
-            _createElementVNode("section", _hoisted_39, [
+            _createElementVNode("section", _hoisted_42, [
               _createElementVNode("header", null, [
                 _createElementVNode("div", null, [
-                  _cache[34] || (_cache[34] = _createElementVNode("span", null, "清理等级 · 真实预演", -1)),
+                  _cache[35] || (_cache[35] = _createElementVNode("span", null, "清理等级 · 真实预演", -1)),
                   _createElementVNode("h2", null, _toDisplayString(currentAction.value?.title), 1)
                 ]),
                 _createElementVNode("button", {
                   type: "button",
                   disabled: executing.value,
                   onClick: closePlan
-                }, "×", 8, _hoisted_40)
+                }, "×", 8, _hoisted_43)
               ]),
               _createElementVNode("div", {
                 class: _normalizeClass(['mode-summary', planMode.value])
               }, [
                 (plan.value && planMode.value === 'delete')
-                  ? (_openBlock(), _createElementBlock("strong", _hoisted_41, _toDisplayString(plan.value.canExecute
+                  ? (_openBlock(), _createElementBlock("strong", _hoisted_44, _toDisplayString(plan.value.canExecute
               ? `已核算可释放${plan.value.acknowledgeMissingFiles ? '（不含已确认缺失入口）' : ''} ${_unref(formatBytes)(plan.value.estimatedReclaimBytes)}`
               : '安全可释放暂不可核算'), 1))
-                  : (_openBlock(), _createElementBlock("strong", _hoisted_42, _toDisplayString(currentAction.value?.detail), 1)),
+                  : (_openBlock(), _createElementBlock("strong", _hoisted_45, _toDisplayString(currentAction.value?.detail), 1)),
                 _createElementVNode("span", null, _toDisplayString(planMode.value === 'pause'
               ? '只改变 qB 运行状态，不删除任务或文件。'
               : planMode.value === 'retire'
                 ? '移除 qB 任务但保留文件，媒体库继续可播放。'
                 : '仅当全部路径、硬链接、H&R 与任务状态通过校验才会放行。'), 1)
               ], 2),
-              _createElementVNode("div", _hoisted_43, [
+              _createElementVNode("div", _hoisted_46, [
                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(selectedItems.value, (item) => {
                   return (_openBlock(), _createElementBlock("div", {
                     key: item.id
@@ -1283,10 +1311,10 @@ return (_ctx, _cache) => {
                 }), 128))
               ]),
               (planLoading.value)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_44, "正在刷新 NAS 状态并复核关系…"))
+                ? (_openBlock(), _createElementBlock("div", _hoisted_47, "正在刷新 NAS 状态并复核关系…"))
                 : (planError.value)
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_45, [
-                      _cache[35] || (_cache[35] = _createElementVNode("strong", null, "无法生成计划", -1)),
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_48, [
+                      _cache[36] || (_cache[36] = _createElementVNode("strong", null, "无法生成计划", -1)),
                       _createElementVNode("span", null, _toDisplayString(planError.value), 1)
                     ]))
                   : (plan.value)
@@ -1296,16 +1324,16 @@ return (_ctx, _cache) => {
                         }, [
                           _createElementVNode("strong", null, _toDisplayString(plan.value.canExecute ? '安全预演通过' : '计划已被安全门禁拦截'), 1),
                           (plan.value.canExecute)
-                            ? (_openBlock(), _createElementBlock("span", _hoisted_46, " 停止 " + _toDisplayString(plan.value.operationCounts.qbStop) + " 个任务 · 退出 " + _toDisplayString(plan.value.operationCounts.qbRemoveKeepFiles) + " 个任务 · 解除 " + _toDisplayString(plan.value.operationCounts.unlinkFiles) + " 个文件入口 ", 1))
-                            : (_openBlock(), _createElementBlock("span", _hoisted_47, [
-                                _cache[36] || (_cache[36] = _createTextVNode(" 未生成可执行操作", -1)),
+                            ? (_openBlock(), _createElementBlock("span", _hoisted_49, " 停止 " + _toDisplayString(plan.value.operationCounts.qbStop) + " 个任务 · 退出 " + _toDisplayString(plan.value.operationCounts.qbRemoveKeepFiles) + " 个任务 · 解除 " + _toDisplayString(plan.value.operationCounts.unlinkFiles) + " 个文件入口 ", 1))
+                            : (_openBlock(), _createElementBlock("span", _hoisted_50, [
+                                _cache[37] || (_cache[37] = _createTextVNode(" 未生成可执行操作", -1)),
                                 (plan.value.operationCounts.qbStop || plan.value.operationCounts.qbRemoveKeepFiles || plan.value.operationCounts.unlinkFiles || plan.value.operationCounts.moviepilotIndexes)
-                                  ? (_openBlock(), _createElementBlock("span", _hoisted_48, "；下列关联影响仅供复核，不会执行"))
+                                  ? (_openBlock(), _createElementBlock("span", _hoisted_51, "；下列关联影响仅供复核，不会执行"))
                                   : _createCommentVNode("", true)
                               ]))
                         ], 2),
                         (plan.value.blocks?.length)
-                          ? (_openBlock(), _createElementBlock("ul", _hoisted_49, [
+                          ? (_openBlock(), _createElementBlock("ul", _hoisted_52, [
                               (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(plan.value.blocks, (issue, index) => {
                                 return (_openBlock(), _createElementBlock("li", {
                                   key: _unref(issueKey)(issue, index)
@@ -1314,7 +1342,7 @@ return (_ctx, _cache) => {
                             ]))
                           : _createCommentVNode("", true),
                         (planMissingFiles.value.length)
-                          ? (_openBlock(), _createElementBlock("ul", _hoisted_50, [
+                          ? (_openBlock(), _createElementBlock("ul", _hoisted_53, [
                               (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(planMissingFiles.value, (missing) => {
                                 return (_openBlock(), _createElementBlock("li", {
                                   key: missing.key
@@ -1325,13 +1353,13 @@ return (_ctx, _cache) => {
                                         _createTextVNode("，应有 " + _toDisplayString(_unref(formatBytes)(missing.expectedSizeBytes)), 1)
                                       ], 64))
                                     : _createCommentVNode("", true),
-                                  _cache[37] || (_cache[37] = _createTextVNode("） ", -1))
+                                  _cache[38] || (_cache[38] = _createTextVNode("） ", -1))
                                 ]))
                               }), 128))
                             ]))
                           : _createCommentVNode("", true),
                         (plan.value.warnings?.length)
-                          ? (_openBlock(), _createElementBlock("ul", _hoisted_51, [
+                          ? (_openBlock(), _createElementBlock("ul", _hoisted_54, [
                               (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(plan.value.warnings, (issue, index) => {
                                 return (_openBlock(), _createElementBlock("li", {
                                   key: _unref(issueKey)(issue, index)
@@ -1340,50 +1368,50 @@ return (_ctx, _cache) => {
                             ]))
                           : _createCommentVNode("", true),
                         (plan.value.requiresSiteAcknowledgement)
-                          ? (_openBlock(), _createElementBlock("label", _hoisted_52, [
+                          ? (_openBlock(), _createElementBlock("label", _hoisted_55, [
                               _createElementVNode("input", {
                                 checked: acknowledgeSiteRisk.value,
                                 type: "checkbox",
                                 onChange: _cache[4] || (_cache[4] = $event => (setSiteRisk($event.target.checked)))
-                              }, null, 40, _hoisted_53),
-                              _cache[38] || (_cache[38] = _createElementVNode("span", null, null, -1)),
-                              _cache[39] || (_cache[39] = _createTextVNode(" 我已确认会影响私有站做种，并接受站点规则风险 ", -1))
+                              }, null, 40, _hoisted_56),
+                              _cache[39] || (_cache[39] = _createElementVNode("span", null, null, -1)),
+                              _cache[40] || (_cache[40] = _createTextVNode(" 我已确认会影响私有站做种，并接受站点规则风险 ", -1))
                             ]))
                           : _createCommentVNode("", true),
                         (plan.value.requiresMissingFileAcknowledgement && planMode.value === 'delete')
-                          ? (_openBlock(), _createElementBlock("label", _hoisted_54, [
+                          ? (_openBlock(), _createElementBlock("label", _hoisted_57, [
                               _createElementVNode("input", {
                                 checked: acknowledgeMissingFiles.value,
                                 type: "checkbox",
                                 onChange: _cache[5] || (_cache[5] = $event => (setMissingFileAcknowledgement($event.target.checked)))
-                              }, null, 40, _hoisted_55),
-                              _cache[40] || (_cache[40] = _createElementVNode("span", null, null, -1)),
-                              _cache[41] || (_cache[41] = _createTextVNode(" 我已确认缺失的必需视频文件不会被删除，只清理其余已核验任务、文件和媒体索引 ", -1))
+                              }, null, 40, _hoisted_58),
+                              _cache[41] || (_cache[41] = _createElementVNode("span", null, null, -1)),
+                              _cache[42] || (_cache[42] = _createTextVNode(" 我已确认缺失的必需视频文件不会被删除，只清理其余已核验任务、文件和媒体索引 ", -1))
                             ]))
                           : _createCommentVNode("", true),
                         (planExpired.value)
-                          ? (_openBlock(), _createElementBlock("div", _hoisted_56, [...(_cache[42] || (_cache[42] = [
+                          ? (_openBlock(), _createElementBlock("div", _hoisted_59, [...(_cache[43] || (_cache[43] = [
                               _createElementVNode("strong", null, "安全预演已过期", -1),
                               _createElementVNode("span", null, "请关闭后重新生成。", -1)
                             ]))]))
                           : _createCommentVNode("", true)
                       ], 64))
                     : _createCommentVNode("", true),
-              _createElementVNode("div", _hoisted_57, [
-                _cache[44] || (_cache[44] = _createElementVNode("i", null, "盾", -1)),
+              _createElementVNode("div", _hoisted_60, [
+                _cache[45] || (_cache[45] = _createElementVNode("i", null, "盾", -1)),
                 _createElementVNode("p", null, [
                   _createElementVNode("strong", null, _toDisplayString(executionEnabled.value ? '执行前还需第二次确认' : '执行引擎未启用'), 1),
-                  _cache[43] || (_cache[43] = _createElementVNode("span", null, "最终执行前复核当前清单，执行器只回读所选资源的 qB、路径和硬链接。", -1))
+                  _cache[44] || (_cache[44] = _createElementVNode("span", null, "最终执行前复核当前清单，执行器只回读所选资源的 qB、路径和硬链接。", -1))
                 ])
               ]),
               (executeError.value && !executeResult.value)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_58, [
-                    _cache[45] || (_cache[45] = _createElementVNode("strong", null, "执行未开始", -1)),
+                ? (_openBlock(), _createElementBlock("div", _hoisted_61, [
+                    _cache[46] || (_cache[46] = _createElementVNode("strong", null, "执行未开始", -1)),
                     _createElementVNode("span", null, _toDisplayString(executeError.value), 1)
                   ]))
                 : _createCommentVNode("", true),
               (executeResult.value)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_59, [
+                ? (_openBlock(), _createElementBlock("div", _hoisted_62, [
                     _createElementVNode("strong", null, _toDisplayString(currentAction.value?.title) + "已完成", 1),
                     _createElementVNode("span", null, [
                       _createTextVNode(" 停止 " + _toDisplayString(executeResult.value.qbStopped) + " · 退出 " + _toDisplayString(executeResult.value.qbRemoved) + " · 删除文件入口 " + _toDisplayString(executeResult.value.filesDeleted) + " · 清理索引 " + _toDisplayString(executeResult.value.moviepilotIndexesDeleted) + " ", 1),
@@ -1394,7 +1422,7 @@ return (_ctx, _cache) => {
                         : _createCommentVNode("", true)
                     ]),
                     (executeResult.value.snapshotRefreshPending)
-                      ? (_openBlock(), _createElementBlock("span", _hoisted_60, _toDisplayString(planMode.value === 'delete' ? '已从当前列表移除，请刷新资源清单后继续操作。' : '操作已完成，请刷新资源清单后继续操作。'), 1))
+                      ? (_openBlock(), _createElementBlock("span", _hoisted_63, _toDisplayString(planMode.value === 'delete' ? '已从当前列表移除，请刷新资源清单后继续操作。' : '操作已完成，请刷新资源清单后继续操作。'), 1))
                       : _createCommentVNode("", true),
                     _createElementVNode("button", {
                       type: "button",
@@ -1402,20 +1430,20 @@ return (_ctx, _cache) => {
                     }, "完成")
                   ]))
                 : (finalConfirmation.value)
-                  ? (_openBlock(), _createElementBlock("div", _hoisted_61, [
-                      _cache[46] || (_cache[46] = _createElementVNode("strong", null, "再次确认：系统将立即执行这份计划", -1)),
+                  ? (_openBlock(), _createElementBlock("div", _hoisted_64, [
+                      _cache[47] || (_cache[47] = _createElementVNode("strong", null, "再次确认：系统将立即执行这份计划", -1)),
                       _createElementVNode("div", null, [
                         _createElementVNode("button", {
                           type: "button",
                           disabled: executing.value,
                           onClick: _cache[6] || (_cache[6] = $event => (finalConfirmation.value = false))
-                        }, "返回", 8, _hoisted_62),
+                        }, "返回", 8, _hoisted_65),
                         _createElementVNode("button", {
                           class: _normalizeClass({ danger: planMode.value === 'delete' }),
                           type: "button",
                           disabled: executing.value || !inventoryCurrent.value || planExpired.value,
                           onClick: executePlan
-                        }, _toDisplayString(executing.value ? '正在定向复核…' : `确认${currentAction.value?.title}`), 11, _hoisted_63)
+                        }, _toDisplayString(executing.value ? '正在定向复核…' : `确认${currentAction.value?.title}`), 11, _hoisted_66)
                       ])
                     ]))
                   : (_openBlock(), _createElementBlock("button", {
@@ -1424,7 +1452,7 @@ return (_ctx, _cache) => {
                       type: "button",
                       disabled: !executionEnabled.value || !inventoryCurrent.value || !plan.value?.canExecute || planExpired.value,
                       onClick: _cache[7] || (_cache[7] = $event => (finalConfirmation.value = true))
-                    }, " 进入最终确认 ", 8, _hoisted_64))
+                    }, " 进入最终确认 ", 8, _hoisted_67))
             ])
           ]))
         : _createCommentVNode("", true),
@@ -1434,9 +1462,9 @@ return (_ctx, _cache) => {
             class: "modal-backdrop",
             onClick: _cache[9] || (_cache[9] = _withModifiers($event => (gapOpen.value = false), ["self"]))
           }, [
-            _createElementVNode("section", _hoisted_65, [
+            _createElementVNode("section", _hoisted_68, [
               _createElementVNode("header", null, [
-                _cache[47] || (_cache[47] = _createElementVNode("div", null, [
+                _cache[48] || (_cache[48] = _createElementVNode("div", null, [
                   _createElementVNode("span", null, "H&R 实时保护"),
                   _createElementVNode("h2", null, "H&R 缺口明细")
                 ], -1)),
@@ -1445,10 +1473,10 @@ return (_ctx, _cache) => {
                 }, "×")
               ]),
               (gapLoading.value)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_66, "正在核对…"))
+                ? (_openBlock(), _createElementBlock("div", _hoisted_69, "正在核对…"))
                 : _createCommentVNode("", true),
               (gapError.value)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_67, _toDisplayString(gapError.value), 1))
+                ? (_openBlock(), _createElementBlock("div", _hoisted_70, _toDisplayString(gapError.value), 1))
                 : _createCommentVNode("", true),
               (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(gaps.value, (item) => {
                 return (_openBlock(), _createElementBlock("div", {
@@ -1471,9 +1499,9 @@ return (_ctx, _cache) => {
             class: "modal-backdrop",
             onClick: _cache[12] || (_cache[12] = _withModifiers($event => (recoveryOpen.value = false), ["self"]))
           }, [
-            _createElementVNode("section", _hoisted_68, [
+            _createElementVNode("section", _hoisted_71, [
               _createElementVNode("header", null, [
-                _cache[48] || (_cache[48] = _createElementVNode("div", null, [
+                _cache[49] || (_cache[49] = _createElementVNode("div", null, [
                   _createElementVNode("span", null, "失败关闭"),
                   _createElementVNode("h2", null, "恢复未完成清理")
                 ], -1)),
@@ -1482,10 +1510,10 @@ return (_ctx, _cache) => {
                 }, "×")
               ]),
               (recoveryLoading.value)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_69, "正在读取事务…"))
+                ? (_openBlock(), _createElementBlock("div", _hoisted_72, "正在读取事务…"))
                 : _createCommentVNode("", true),
               (recoveryError.value)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_70, _toDisplayString(recoveryError.value), 1))
+                ? (_openBlock(), _createElementBlock("div", _hoisted_73, _toDisplayString(recoveryError.value), 1))
                 : _createCommentVNode("", true),
               (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(recoveries.value, (item) => {
                 return (_openBlock(), _createElementBlock("div", {
@@ -1499,17 +1527,17 @@ return (_ctx, _cache) => {
                   _createElementVNode("button", {
                     type: "button",
                     onClick: $event => (chooseRecovery(item, 'rollback'))
-                  }, "回滚", 8, _hoisted_71),
+                  }, "回滚", 8, _hoisted_74),
                   _createElementVNode("button", {
                     type: "button",
                     onClick: $event => (chooseRecovery(item, 'finalize'))
-                  }, "完成原事务", 8, _hoisted_72)
+                  }, "完成原事务", 8, _hoisted_75)
                 ]))
               }), 128)),
               (recoveryTarget.value)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_73, [
+                ? (_openBlock(), _createElementBlock("div", _hoisted_76, [
                     _createElementVNode("label", null, [
-                      _cache[49] || (_cache[49] = _createTextVNode("输入确认短语 ", -1)),
+                      _cache[50] || (_cache[50] = _createTextVNode("输入确认短语 ", -1)),
                       _createElementVNode("code", null, _toDisplayString(recoveryExpectedPhrase()), 1)
                     ]),
                     _withDirectives(_createElementVNode("input", {
@@ -1522,7 +1550,7 @@ return (_ctx, _cache) => {
                       type: "button",
                       disabled: recovering.value || recoveryPhrase.value !== recoveryExpectedPhrase(),
                       onClick: runRecovery
-                    }, _toDisplayString(recovering.value ? '处理中…' : '执行恢复'), 9, _hoisted_74)
+                    }, _toDisplayString(recovering.value ? '处理中…' : '执行恢复'), 9, _hoisted_77)
                   ]))
                 : _createCommentVNode("", true)
             ])
@@ -1534,9 +1562,9 @@ return (_ctx, _cache) => {
             class: "modal-backdrop",
             onClick: _withModifiers(closeSettings, ["self"])
           }, [
-            _createElementVNode("section", _hoisted_75, [
+            _createElementVNode("section", _hoisted_78, [
               _createElementVNode("header", null, [
-                _cache[50] || (_cache[50] = _createElementVNode("div", null, [
+                _cache[51] || (_cache[51] = _createElementVNode("div", null, [
                   _createElementVNode("span", null, "清理台配置"),
                   _createElementVNode("h2", { id: "storage-cleanup-settings-title" }, "设置")
                 ], -1)),
@@ -1560,6 +1588,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-372b4fb3"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0db07812"]]);
 
 export { createLatestPlanApi as c, AppPage as default };

@@ -1682,6 +1682,63 @@ def _overlay_tv_episode_cohorts(resources: list[dict[str, Any]]) -> None:
                     )
 
 
+def _overlay_shared_hardlink_resources(resources: list[dict[str, Any]]) -> None:
+    """Expose safe cross-resource hard-link summaries for the public snapshot.
+
+    Cleanup planning already accounts for shared ``(dev, inode)`` ownership.
+    The resource cards historically only saw each row's own qB tasks, which
+    made a media-only row appear to have no seeding impact even when its files
+    were hard-linked to another row's qB payload.  Publish titles and safety
+    state for related rows, but never paths, hashes, or inode details.
+    """
+
+    inode_owners: dict[tuple[int, int], set[str]] = defaultdict(set)
+    resource_inodes: dict[str, set[tuple[int, int]]] = {}
+    by_id: dict[str, dict[str, Any]] = {}
+    for item in resources:
+        resource_id = str(item.get("id") or "")
+        if not resource_id:
+            continue
+        by_id[resource_id] = item
+        inodes: set[tuple[int, int]] = set()
+        for record in (item.get("_private") or {}).get("cleanupFiles") or []:
+            if not record.get("exists"):
+                continue
+            try:
+                dev = int(record.get("dev") or 0)
+                inode = int(record.get("inode") or 0)
+            except (TypeError, ValueError):
+                continue
+            if dev > 0 and inode > 0:
+                inodes.add((dev, inode))
+        resource_inodes[resource_id] = inodes
+        for inode in inodes:
+            inode_owners[inode].add(resource_id)
+
+    for item in resources:
+        resource_id = str(item.get("id") or "")
+        related_ids = sorted(
+            {
+                owner_id
+                for inode in resource_inodes.get(resource_id, set())
+                for owner_id in inode_owners.get(inode, set())
+                if owner_id != resource_id
+            }
+        )
+        item["sharedHardlinkResources"] = [
+            {
+                "id": owner_id,
+                "title": str(related.get("title") or owner_id),
+                "englishTitle": str(related.get("englishTitle") or ""),
+                "edition": str(related.get("edition") or ""),
+                "protected": bool(related.get("protected")),
+                "metadataVerified": related.get("metadataVerified") is True,
+            }
+            for owner_id in related_ids
+            for related in [by_id.get(owner_id) or {}]
+        ]
+
+
 def enrich_and_merge_resources(
     resources: list[dict[str, Any]],
     cache: dict[str, Any],
@@ -1976,6 +2033,7 @@ def enrich_and_merge_resources(
         groups[identity].append(item)
     merged = [_merge_group(groups[identity], identity) for identity in order]
     _overlay_tv_episode_cohorts(merged)
+    _overlay_shared_hardlink_resources(merged)
     merged.sort(key=lambda item: (-float(item.get("size") or 0), item["title"]))
     return merged, {
         "metadataResolvedResources": resolved_all,
