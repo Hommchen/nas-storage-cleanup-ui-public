@@ -8,6 +8,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import re
 from pathlib import PurePosixPath, Path
 from typing import Any
 
@@ -67,6 +68,44 @@ def _canonical_digest(value: Any) -> str:
 def _add_reason(target: list[dict[str, str]], code: str, message: str) -> None:
     if not any(item["code"] == code for item in target):
         target.append({"code": code, "message": message})
+
+
+def _missing_file_details(resource: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return safe, path-free details for required files missing at plan time.
+
+    The planner must keep failing closed when a required file is absent.  The
+    UI still needs enough information to tell the operator what to refresh and
+    verify, but an absolute NAS path or qB identifier must never be exposed in
+    the public plan.
+    """
+
+    details: list[dict[str, Any]] = []
+    for item in resource.get("cleanupFiles") or []:
+        if not item.get("required") or item.get("exists"):
+            continue
+
+        raw_path = str(item.get("path") or "")
+        name = PurePosixPath(raw_path).name or "未命名文件"
+        episode_match = re.search(r"(?i)S\d{1,3}E\d{1,3}", name)
+        try:
+            expected_size = int(
+                item.get("qbExpectedSize")
+                or item.get("expectedSize")
+                or item.get("size")
+                or 0
+            )
+        except (TypeError, ValueError):
+            expected_size = 0
+        detail: dict[str, Any] = {
+            "source": "qB 任务" if item.get("source") == "qb" else "媒体库",
+            "name": name,
+        }
+        if episode_match:
+            detail["episode"] = episode_match.group(0).upper()
+        if expected_size > 0:
+            detail["expectedSizeBytes"] = expected_size
+        details.append(detail)
+    return details
 
 
 def _inode_accounting(
@@ -470,6 +509,7 @@ def build_plan(
                 "blocked": bool(resource_blocks),
                 "blocks": resource_blocks,
                 "warnings": resource_warnings,
+                "missingFiles": _missing_file_details(resource),
             }
         )
         for reason in resource_blocks:

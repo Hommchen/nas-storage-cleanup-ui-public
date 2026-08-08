@@ -75,6 +75,12 @@ const visible = computed(() => filterResources(resources.value, {
   descending: descending.value,
 }))
 const selectedItems = computed(() => resources.value.filter(item => selected.value.includes(item.id)))
+const planMissingFiles = computed(() => (plan.value?.resources || []).flatMap(item => (
+  (item.missingFiles || []).map(missing => ({
+    ...missing,
+    key: `${item.id}-missing-${missing.episode || missing.name}-${missing.source}`,
+  }))
+)))
 const selectedSize = computed(() => selectedItems.value.reduce((total, item) => total + Number(item.size || 0), 0))
 const executionEnabled = computed(() => Boolean(health.value.executionEnabled))
 const inventoryCurrent = computed(() => health.value.inventoryCurrent !== false)
@@ -777,7 +783,9 @@ onUnmounted(stopRefreshTimer)
         </header>
 
         <div :class="['mode-summary', planMode]">
-          <strong v-if="plan && planMode === 'delete'">已核算可释放 {{ formatBytes(plan.estimatedReclaimBytes) }}</strong>
+          <strong v-if="plan && planMode === 'delete'">
+            {{ plan.canExecute ? `已核算可释放 ${formatBytes(plan.estimatedReclaimBytes)}` : '安全可释放暂不可核算' }}
+          </strong>
           <strong v-else>{{ currentAction?.detail }}</strong>
           <span>
             {{ planMode === 'pause'
@@ -802,14 +810,22 @@ onUnmounted(stopRefreshTimer)
         <template v-else-if="plan">
           <div :class="['plan-state', plan.canExecute ? 'passed' : 'blocked']">
             <strong>{{ plan.canExecute ? '安全预演通过' : '计划已被安全门禁拦截' }}</strong>
-            <span>
+            <span v-if="plan.canExecute">
               停止 {{ plan.operationCounts.qbStop }} 个任务 ·
               退出 {{ plan.operationCounts.qbRemoveKeepFiles }} 个任务 ·
               解除 {{ plan.operationCounts.unlinkFiles }} 个文件入口
             </span>
+            <span v-else>
+              未生成可执行操作<span v-if="plan.operationCounts.qbStop || plan.operationCounts.qbRemoveKeepFiles || plan.operationCounts.unlinkFiles || plan.operationCounts.moviepilotIndexes">；下列关联影响仅供复核，不会执行</span>
+            </span>
           </div>
           <ul v-if="plan.blocks?.length" class="issues blocked">
             <li v-for="(issue, index) in plan.blocks" :key="issueKey(issue, index)">{{ issue.message }}</li>
+          </ul>
+          <ul v-if="planMissingFiles.length" class="issues blocked">
+            <li v-for="missing in planMissingFiles" :key="missing.key">
+              缺失 {{ missing.episode ? `${missing.episode} · ` : '' }}{{ missing.name }}（来源：{{ missing.source }}<template v-if="missing.expectedSizeBytes">，应有 {{ formatBytes(missing.expectedSizeBytes) }}</template>）
+            </li>
           </ul>
           <ul v-if="plan.warnings?.length" class="issues warning">
             <li v-for="(issue, index) in plan.warnings" :key="issueKey(issue, index)">{{ issue.message }}</li>
