@@ -106,7 +106,13 @@ class ExecutionEngineTests(unittest.TestCase):
         self.assertEqual(calls[0][0][3], "test@example")
         self.assertEqual(
             set(payload),
-            {"planId", "mode", "operations", "fileExpectations"},
+            {
+                "planId",
+                "mode",
+                "operations",
+                "fileExpectations",
+                "missingFileExpectations",
+            },
         )
 
     def test_ssh_runner_surfaces_structured_remote_failure(self):
@@ -199,7 +205,13 @@ class ExecutionEngineTests(unittest.TestCase):
         self.assertNotIn("ssh", command)
         self.assertEqual(
             set(payload),
-            {"planId", "mode", "operations", "fileExpectations"},
+            {
+                "planId",
+                "mode",
+                "operations",
+                "fileExpectations",
+                "missingFileExpectations",
+            },
         )
 
     def test_local_recovery_runner_sends_explicit_request(self):

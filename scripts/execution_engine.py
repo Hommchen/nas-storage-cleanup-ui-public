@@ -517,6 +517,42 @@ def validate_files(paths, expectations):
         fail("hardlink_set_changed", "硬链接集合不完整，已拒绝删除。")
 
 
+def validate_missing_files(expectations):
+    """Recheck acknowledged missing entries before any destructive action."""
+
+    if not isinstance(expectations, dict):
+        fail("invalid_missing_files", "执行计划包含无效的缺失文件确认。")
+    if len(expectations) > 8:
+        fail("too_many_missing_files", "一次确认的缺失文件过多，已拒绝执行。")
+    for raw_path, expected in expectations.items():
+        path = str(raw_path or "")
+        if not isinstance(expected, dict) or not path:
+            fail("invalid_missing_files", "执行计划包含无效的缺失文件确认。")
+        if not path_allowed(path) and not legacy_quarantine_allowed(path):
+            fail("path_outside_allowlist", "缺失文件路径已离开允许清理目录。")
+        if expected.get("source") != "qb":
+            fail("invalid_missing_files", "缺失确认只允许来自 qB 的文件。")
+        if expected.get("required") is not True:
+            fail("invalid_missing_files", "缺失确认缺少必需文件标记。")
+        if expected.get("relativeSafe") is not True:
+            fail("unsafe_qb_relative_path", "缺失文件的 qB 相对路径不安全。")
+        try:
+            expected_size = int(expected.get("qbExpectedSize") or 0)
+            progress = float(expected.get("qbProgress") or 0)
+        except (TypeError, ValueError):
+            fail("invalid_missing_files", "缺失确认的 qB 状态无效。")
+        if expected_size <= 0 or progress < 0.999999:
+            fail("invalid_missing_files", "缺失确认的 qB 状态未满足已完成条件。")
+        candidate = Path(path)
+        try:
+            candidate.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            fail("missing_file_recheck_failed", "无法复核缺失文件当前状态。")
+        fail("missing_file_reappeared", "已确认缺失的文件重新出现，请重新生成计划。")
+
+
 def open_handle_count(paths):
     targets = {os.path.realpath(path) for path in paths}
     proc_root = Path("/proc")
@@ -1283,6 +1319,7 @@ def execute(payload):
     mode = str(payload.get("mode") or "")
     operations = payload.get("operations") or {}
     expectations = payload.get("fileExpectations") or {}
+    missing_expectations = payload.get("missingFileExpectations") or {}
     if not PLAN_RE.fullmatch(plan_id):
         fail("invalid_plan_id", "执行计划标识无效。")
     if mode not in {"pause", "retire", "delete"}:
@@ -1324,8 +1361,11 @@ def execute(payload):
         if not paths:
             fail("empty_delete", "完整删除计划没有文件。")
         validate_files(paths, expectations)
+        validate_missing_files(missing_expectations)
     elif paths:
         fail("unexpected_files", "非删除档位不能包含文件操作。")
+    elif missing_expectations:
+        fail("unexpected_missing_files", "非删除档位不能包含缺失文件确认。")
 
     current = all_torrents()
     missing = [task_hash for task_hash in hashes if task_hash not in current]
@@ -1418,6 +1458,7 @@ def execute(payload):
                 "files_staged",
                 staged=staged,
             )
+            validate_missing_files(missing_expectations)
     except Exception:
         rollback_before_commit(
             staged,
@@ -1430,6 +1471,11 @@ def execute(payload):
         raise
 
     if remove_hashes:
+        if mode == "delete":
+            # Check immediately before qB removal so a file that was restored
+            # while the transaction was being prepared cannot be silently
+            # treated as an already-absent entry.
+            validate_missing_files(missing_expectations)
         delete_error = None
         try:
             qb_post(
@@ -1515,6 +1561,9 @@ def execute(payload):
         "qbStopped": len(stop_hashes) if mode == "pause" else 0,
         "qbRemoved": len(remove_hashes),
         "filesDeleted": len(paths) if mode == "delete" else 0,
+        "missingFilesAlreadyAbsent": (
+            len(missing_expectations) if mode == "delete" else 0
+        ),
         "moviepilotIndexesDeleted": len(moviepilot_rows),
         "backupCreated": backup_dir is not None,
     }
@@ -1614,6 +1663,9 @@ class SSHExecutionRunner:
             "mode": plan["mode"],
             "operations": plan["operations"],
             "fileExpectations": plan["fileExpectations"],
+            "missingFileExpectations": plan.get(
+                "missingFileExpectations", {}
+            ),
         }
         encoded_executor = _encoded_executor(self.config)
         python_code = (
@@ -1750,6 +1802,9 @@ class LocalExecutionRunner:
             "mode": plan["mode"],
             "operations": plan["operations"],
             "fileExpectations": plan["fileExpectations"],
+            "missingFileExpectations": plan.get(
+                "missingFileExpectations", {}
+            ),
         }
         return _run_local_executor(
             payload,

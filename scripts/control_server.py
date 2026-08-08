@@ -322,6 +322,7 @@ class ControlState:
         resource_ids = request.get("resourceIds")
         mode = request.get("mode")
         acknowledge_site_risk = request.get("acknowledgeSiteRisk", False)
+        acknowledge_missing_files = request.get("acknowledgeMissingFiles", False)
         if not isinstance(snapshot_id, str):
             raise ApiError(400, "invalid_request", "snapshotId 格式不正确。")
         if (
@@ -337,6 +338,12 @@ class ControlState:
                 "invalid_request",
                 "acknowledgeSiteRisk 格式不正确。",
             )
+        if not isinstance(acknowledge_missing_files, bool):
+            raise ApiError(
+                400,
+                "invalid_request",
+                "acknowledgeMissingFiles 格式不正确。",
+            )
         try:
             plan = build_plan(
                 self.inventory(),
@@ -344,6 +351,7 @@ class ControlState:
                 resource_ids=resource_ids,
                 mode=mode,
                 acknowledge_site_risk=acknowledge_site_risk,
+                acknowledge_missing_files=acknowledge_missing_files,
                 allowed_roots=self.config["allowed_roots"],
             )
         except PlanInputError as exc:
@@ -667,6 +675,9 @@ class ControlState:
                     acknowledge_site_risk=plan[
                         "acknowledgeSiteRisk"
                     ],
+                    acknowledge_missing_files=plan.get(
+                        "acknowledgeMissingFiles", False
+                    ),
                     allowed_roots=self.config["allowed_roots"],
                 )
             except PlanInputError as exc:

@@ -132,6 +132,8 @@ type PublicPlan = {
   canExecute: boolean;
   requiresSiteAcknowledgement: boolean;
   acknowledgeSiteRisk: boolean;
+  requiresMissingFileAcknowledgement: boolean;
+  acknowledgeMissingFiles: boolean;
   estimatedReclaimBytes: number;
   resources: PlannedResource[];
   blocks: PlanIssue[];
@@ -150,6 +152,7 @@ type ExecutionResult = {
   qbStopped: number;
   qbRemoved: number;
   filesDeleted: number;
+  missingFilesAlreadyAbsent?: number;
   moviepilotIndexesDeleted: number;
   backupCreated: boolean;
   snapshotRefreshPending: boolean;
@@ -351,6 +354,8 @@ export default function Home() {
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState("");
   const [acknowledgeSiteRisk, setAcknowledgeSiteRisk] = useState(false);
+  const [acknowledgeMissingFiles, setAcknowledgeMissingFiles] =
+    useState(false);
   const [confirmationOpen, setConfirmationOpen] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [executeError, setExecuteError] = useState("");
@@ -623,6 +628,7 @@ export default function Home() {
   const requestPlan = async (
     mode: ActionMode,
     siteRiskAcknowledged: boolean,
+    missingFilesAcknowledged: boolean,
   ) => {
     const requestId = ++planRequestSequence.current;
     setPlanLoading(true);
@@ -648,6 +654,7 @@ export default function Home() {
           resourceIds: selected,
           mode,
           acknowledgeSiteRisk: siteRiskAcknowledged,
+          acknowledgeMissingFiles: missingFilesAcknowledged,
         }),
       });
       const payload = await parseJsonResponse<{
@@ -720,10 +727,11 @@ export default function Home() {
     setClock(Date.now());
     setActionMode(mode);
     setAcknowledgeSiteRisk(false);
+    setAcknowledgeMissingFiles(false);
     setConfirmationOpen(false);
     setExecuteError("");
     setExecuteResult(null);
-    void requestPlan(mode, false);
+    void requestPlan(mode, false, false);
   };
 
   const closePlan = () => {
@@ -733,6 +741,7 @@ export default function Home() {
     setPlan(null);
     setPlanError("");
     setAcknowledgeSiteRisk(false);
+    setAcknowledgeMissingFiles(false);
     setConfirmationOpen(false);
     setExecuteError("");
   };
@@ -741,7 +750,18 @@ export default function Home() {
     setAcknowledgeSiteRisk(checked);
     setConfirmationOpen(false);
     setExecuteError("");
-    if (actionMode) void requestPlan(actionMode, checked);
+    if (actionMode) {
+      void requestPlan(actionMode, checked, acknowledgeMissingFiles);
+    }
+  };
+
+  const toggleMissingFileAcknowledgement = (checked: boolean) => {
+    setAcknowledgeMissingFiles(checked);
+    setConfirmationOpen(false);
+    setExecuteError("");
+    if (actionMode) {
+      void requestPlan(actionMode, acknowledgeSiteRisk, checked);
+    }
   };
 
   const executePlan = async () => {
@@ -1664,7 +1684,7 @@ export default function Home() {
               <strong>
                 {plan && actionMode === "delete"
                   ? plan.canExecute
-                    ? `已核算可释放 ${formatBytes(plan.estimatedReclaimBytes)}`
+                    ? `已核算可释放${plan.acknowledgeMissingFiles ? "（不含已确认缺失入口）" : ""} ${formatBytes(plan.estimatedReclaimBytes)}`
                     : "安全可释放暂不可核算"
                   : actionSummary(actionMode, selectedSize)}
               </strong>
@@ -1786,6 +1806,22 @@ export default function Home() {
                       我已确认这会影响私有站做种，并接受站点规则风险
                     </label>
                   )}
+                  {plan.requiresMissingFileAcknowledgement &&
+                    actionMode === "delete" && (
+                      <label className="site-risk-check missing-file-check">
+                        <input
+                          type="checkbox"
+                          checked={acknowledgeMissingFiles}
+                          onChange={(event) =>
+                            toggleMissingFileAcknowledgement(
+                              event.target.checked,
+                            )
+                          }
+                        />
+                        <span />
+                        我已确认缺失的必需视频文件不会被删除，只清理其余已核验任务、文件和媒体索引
+                      </label>
+                    )}
                   {planExpired && (
                     <div className="plan-blocked" role="alert">
                       <strong>安全预演已过期</strong>
@@ -1826,6 +1862,9 @@ export default function Home() {
                     : ""}
                   {executeResult.filesDeleted
                     ? `已删除 ${executeResult.filesDeleted} 个精确文件入口。`
+                    : ""}
+                  {executeResult.missingFilesAlreadyAbsent
+                    ? `已核对 ${executeResult.missingFilesAlreadyAbsent} 个缺失入口仍不存在（不计释放量）。`
                     : ""}
                   {executeResult.moviepilotIndexesDeleted
                     ? `已清理 ${executeResult.moviepilotIndexesDeleted} 条 MoviePilot 媒体索引。`

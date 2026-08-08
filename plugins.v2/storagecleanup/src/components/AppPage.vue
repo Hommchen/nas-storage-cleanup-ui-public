@@ -46,6 +46,7 @@ const plan = ref(null)
 const planLoading = ref(false)
 const planError = ref('')
 const acknowledgeSiteRisk = ref(false)
+const acknowledgeMissingFiles = ref(false)
 const finalConfirmation = ref(false)
 const executing = ref(false)
 const executeError = ref('')
@@ -329,7 +330,7 @@ function clearFilterChip(chip) {
   filterState.value = { ...filterState.value, [chip.group]: 'all' }
 }
 
-async function requestPlan(mode, acknowledged = false) {
+async function requestPlan(mode, acknowledged = false, missingAcknowledged = false) {
   planLoading.value = true
   planError.value = ''
   executeError.value = ''
@@ -346,6 +347,7 @@ async function requestPlan(mode, acknowledged = false) {
       resourceIds: selected.value,
       mode,
       acknowledgeSiteRisk: acknowledged,
+      acknowledgeMissingFiles: missingAcknowledged,
     })
     if (!payload?.ok || !payload.plan) throw new Error(payloadError(payload, '无法生成执行计划。'))
     plan.value = payload.plan
@@ -360,9 +362,10 @@ function openPlan(mode) {
   planMode.value = mode
   planOpen.value = true
   acknowledgeSiteRisk.value = false
+  acknowledgeMissingFiles.value = false
   executeResult.value = null
   executeError.value = ''
-  requestPlan(mode, false)
+  requestPlan(mode, false, false)
 }
 
 function closePlan() {
@@ -371,13 +374,21 @@ function closePlan() {
   planMode.value = null
   plan.value = null
   planError.value = ''
+  acknowledgeMissingFiles.value = false
   finalConfirmation.value = false
   executeResult.value = null
 }
 
 async function setSiteRisk(value) {
   acknowledgeSiteRisk.value = value
-  await requestPlan(planMode.value, value)
+  await requestPlan(planMode.value, value, acknowledgeMissingFiles.value)
+}
+
+async function setMissingFileAcknowledgement(value) {
+  acknowledgeMissingFiles.value = value
+  finalConfirmation.value = false
+  executeError.value = ''
+  await requestPlan(planMode.value, acknowledgeSiteRisk.value, value)
 }
 
 async function executePlan() {
@@ -784,7 +795,9 @@ onUnmounted(stopRefreshTimer)
 
         <div :class="['mode-summary', planMode]">
           <strong v-if="plan && planMode === 'delete'">
-            {{ plan.canExecute ? `已核算可释放 ${formatBytes(plan.estimatedReclaimBytes)}` : '安全可释放暂不可核算' }}
+            {{ plan.canExecute
+              ? `已核算可释放${plan.acknowledgeMissingFiles ? '（不含已确认缺失入口）' : ''} ${formatBytes(plan.estimatedReclaimBytes)}`
+              : '安全可释放暂不可核算' }}
           </strong>
           <strong v-else>{{ currentAction?.detail }}</strong>
           <span>
@@ -839,6 +852,18 @@ onUnmounted(stopRefreshTimer)
             <span />
             我已确认会影响私有站做种，并接受站点规则风险
           </label>
+          <label
+            v-if="plan.requiresMissingFileAcknowledgement && planMode === 'delete'"
+            class="risk-check missing-file-check"
+          >
+            <input
+              :checked="acknowledgeMissingFiles"
+              type="checkbox"
+              @change="setMissingFileAcknowledgement($event.target.checked)"
+            >
+            <span />
+            我已确认缺失的必需视频文件不会被删除，只清理其余已核验任务、文件和媒体索引
+          </label>
           <div v-if="planExpired" class="plan-state blocked">
             <strong>安全预演已过期</strong><span>请关闭后重新生成。</span>
           </div>
@@ -861,6 +886,9 @@ onUnmounted(stopRefreshTimer)
           <span>
             停止 {{ executeResult.qbStopped }} · 退出 {{ executeResult.qbRemoved }} ·
             删除文件入口 {{ executeResult.filesDeleted }} · 清理索引 {{ executeResult.moviepilotIndexesDeleted }}
+            <template v-if="executeResult.missingFilesAlreadyAbsent">
+              · 已核对缺失入口 {{ executeResult.missingFilesAlreadyAbsent }} 个（不计释放量）
+            </template>
           </span>
           <span v-if="executeResult.snapshotRefreshPending">
             {{ planMode === 'delete' ? '已从当前列表移除，请刷新资源清单后继续操作。' : '操作已完成，请刷新资源清单后继续操作。' }}
