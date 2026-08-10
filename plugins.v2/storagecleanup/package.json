@@ -2,6 +2,13 @@
   "name": "moviepilot-storage-cleanup-plugin",
   "private": true,
   "version": "1.0.20",
+  "description": "MoviePilot entry for the NAS Storage Cleanup console.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Hommchen/nas-storage-cleanup-ui-public.git",
+    "directory": "plugins.v2/storagecleanup"
+  },
   "type": "module",
   "scripts": {
     "build": "vite build",
