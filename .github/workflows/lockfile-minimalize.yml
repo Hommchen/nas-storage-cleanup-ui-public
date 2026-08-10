@@ -1,0 +1,47 @@
+name: Minimize nanoid lockfile patch
+
+on:
+  push:
+    branches:
+      - agent/fix-nanoid-audit
+
+permissions:
+  contents: write
+
+jobs:
+  minimize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-nanoid-audit
+          fetch-depth: 0
+      - name: Restore lockfile and apply only nanoid patch
+        run: |
+          git fetch origin main
+          git checkout origin/main -- package-lock.json
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('package-lock.json')
+          text = path.read_text()
+          old = '''    "node_modules/nanoid": {
+              "version": "3.3.16",
+              "resolved": "https://registry.npmjs.org/nanoid/-/nanoid-3.3.16.tgz",
+              "integrity": "sha512-bzlKTyNJ7+LdGIIwy8ijFpIqEQIvafahV7eYykJ8Cvh42EdJeODoJ6gUJXpQJvej1BddH8OqTXZNE/KfbWAu8Q==",'''
+          new = '''    "node_modules/nanoid": {
+              "version": "3.3.18",
+              "resolved": "https://registry.npmjs.org/nanoid/-/nanoid-3.3.18.tgz",
+              "integrity": "sha512-DTg4MJbGMWkfi6VZFdNt2/caMbQy4Ou+Op/hJQvGEWcnVfoA1QA+xzRKAzw9jD6+GVOOeYr/mIcuDSdug6F6+w==",'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one nanoid lock entry, found {text.count(old)}')
+          path.write_text(text.replace(old, new))
+          PY
+          git diff --check
+      - name: Commit minimal lockfile patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "fix: update vulnerable nanoid to 3.3.18"
+          git push origin HEAD:agent/fix-nanoid-audit
