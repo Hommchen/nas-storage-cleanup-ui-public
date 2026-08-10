@@ -1,6 +1,7 @@
 # NAS 清理台
 
 [![CI](https://github.com/Hommchen/nas-storage-cleanup-ui-public/actions/workflows/ci.yml/badge.svg)](https://github.com/Hommchen/nas-storage-cleanup-ui-public/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > 面向 Jellyfin + qBittorrent + MoviePilot 的本地 NAS 媒体清理控制台。
 
@@ -180,6 +181,10 @@ GitHub Actions 会在 `main` 的 push 和 Pull Request 上运行完整项目验�
 欢迎提交 Bug、适配和安全改进。涉及删除链路的改动必须同时覆盖失败场景测试。
 
 贡献规范见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+
+## 许可证
+
+本项目采用 [MIT License](LICENSE)。
 
 ## 隐私
 
