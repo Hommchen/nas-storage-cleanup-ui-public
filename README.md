@@ -1,10 +1,14 @@
 # NAS 清理台
 
+[![CI](https://github.com/Hommchen/nas-storage-cleanup-ui-public/actions/workflows/ci.yml/badge.svg)](https://github.com/Hommchen/nas-storage-cleanup-ui-public/actions/workflows/ci.yml)
+
 > 面向 Jellyfin + qBittorrent + MoviePilot 的本地 NAS 媒体清理控制台。
 
 NAS 清理台把媒体库、做种任务、硬链接关系和可选的 H&R 保护状态聚合成一份可审计的资源视图，让你先看清楚“删什么、会影响什么、为什么能删”，再决定是否执行。
 
 项目默认 **只读 + fail closed**：任何关键状态不明确时拒绝执行，而不是猜测后继续。
+
+**项目状态：** 活跃开发中，当前主要面向自托管单机 NAS。真实删除能力属于高风险功能，首次部署应先在只读模式完成拓扑核对。
 
 ## 它能做什么
 
@@ -74,7 +78,7 @@ http://localhost:3000/
 
 公开页面和浏览器接口不会暴露本机路径、tracker、passkey、infohash、控制令牌或私有 H&R 标题。真实执行数据只保存在本地私有库存中。
 
-更多安全约束见 [`SECURITY.md`](SECURITY.md)。
+详细组件边界见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)，安全报告与边界见 [`SECURITY.md`](SECURITY.md)。
 
 ## H&R 支持
 
@@ -151,6 +155,8 @@ npm run smoke:readonly
 
 `smoke:readonly` 只接受 loopback 控制服务，并要求执行模式关闭；它不会生成有效清理计划，也不会触发 NAS 或 qB 写操作。
 
+GitHub Actions 会在 `main` 的 push 和 Pull Request 上运行完整项目验证，并检查生产依赖的高危漏洞。
+
 ## 事务与恢复
 
 退出做种和完整删除会记录事务阶段、原 qB 运行态、恢复材料和隔离映射。
@@ -178,7 +184,3 @@ npm run smoke:readonly
 ## 隐私
 
 仓库不应包含真实媒体清单、运行缓存、Cookie、tracker、passkey、infohash、控制令牌或真实私有站 H&R 数据。测试 fixture 必须使用虚构数据。
-
-## 项目状态
-
-项目仍在持续迭代，当前更偏向“可审计、安全优先的个人 NAS 工具”，而不是开箱即用的通用 NAS 套件。跨 NAS 使用前请先在只读模式完成配置和验证。
