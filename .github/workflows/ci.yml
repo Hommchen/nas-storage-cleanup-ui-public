@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,7 +16,7 @@ concurrency:
 
 jobs:
   test:
-    name: lint, tests, and builds
+    name: lint, tests, builds, and audit
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -40,3 +41,6 @@ jobs:
 
       - name: Run full project validation
         run: npm test
+
+      - name: Audit production dependencies
+        run: npm run audit:prod
