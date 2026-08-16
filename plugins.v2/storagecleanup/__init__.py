@@ -16,7 +16,7 @@ class StorageCleanup(_PluginBase):
     plugin_name = "存储清理"
     plugin_desc = "一键清理全链路耦合：自动发现 MoviePilot、qB、媒体目录与硬链接关系，联动核验做种、H&R 后安全释放空间。无特定媒体服务器也能使用。需先部署 NAS 清理台服务。"
     plugin_icon = "https://raw.githubusercontent.com/Hommchen/nas-storage-cleanup-ui-public/main/public/storagecleanup.svg"
-    plugin_version = "1.0.20"
+    plugin_version = "1.0.21"
     plugin_author = "Hommchen"
     author_url = "https://github.com/Hommchen/nas-storage-cleanup-ui-public"
     plugin_config_prefix = "storagecleanup_"
@@ -40,7 +40,7 @@ class StorageCleanup(_PluginBase):
 
     @staticmethod
     def get_render_mode() -> Tuple[str, str]:
-        return "vue", "dist/v1.0.20/assets"
+        return "vue", "dist/v1.0.21/assets"
 
     @staticmethod
     def get_form() -> Tuple[List[dict], Dict[str, Any]]:
@@ -118,6 +118,28 @@ class StorageCleanup(_PluginBase):
             "summary": summary,
         }
 
+    def _bridge_request(
+        self,
+        path: str,
+        *,
+        method: str = "GET",
+        payload: dict[str, Any] | None = None,
+    ) -> tuple[int, dict[str, Any]]:
+        try:
+            return self._bridge.request(
+                path,
+                method=method,
+                payload=payload,
+            )
+        except RuntimeError as exc:
+            return 503, {
+                "ok": False,
+                "error": {
+                    "code": "cleanup_bridge_not_ready",
+                    "message": str(exc),
+                },
+            }
+
     def _proxy(
         self,
         path: str,
@@ -125,27 +147,18 @@ class StorageCleanup(_PluginBase):
         method: str = "GET",
         payload: dict[str, Any] | None = None,
     ) -> JSONResponse:
-        try:
-            status, content = self._bridge.request(
-                path,
-                method=method,
-                payload=payload,
-            )
-        except RuntimeError as exc:
-            status, content = 503, {
-                "ok": False,
-                "error": {
-                    "code": "cleanup_bridge_not_ready",
-                    "message": str(exc),
-                },
-            }
+        status, content = self._bridge_request(
+            path,
+            method=method,
+            payload=payload,
+        )
         return JSONResponse(status_code=status, content=content)
 
     def status(self) -> JSONResponse:
-        status, health = self._bridge.request("/health")
+        status, health = self._bridge_request("/health")
         if status != 200 or not health.get("ok"):
             return JSONResponse(status_code=status, content=health)
-        snapshot_status, snapshot = self._bridge.request("/v1/snapshot")
+        snapshot_status, snapshot = self._bridge_request("/v1/snapshot")
         if snapshot_status != 200:
             return JSONResponse(status_code=snapshot_status, content=snapshot)
         return JSONResponse(

@@ -55,7 +55,7 @@ class MoviePilotPluginTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["StorageCleanup"]["system_version"], ">=2.14.6")
-        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.20")
+        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.21")
         self.assertIn("自动发现 MoviePilot", manifest["StorageCleanup"]["description"])
         self.assertIn(
             "一键清理全链路耦合",
@@ -86,7 +86,7 @@ class MoviePilotPluginTests(unittest.TestCase):
             (PLUGIN_ROOT / "__init__.py").read_text(encoding="utf-8"),
         )
         self.assertTrue(
-            (PLUGIN_ROOT / "dist/v1.0.20/assets/remoteEntry.js").is_file()
+            (PLUGIN_ROOT / "dist/v1.0.21/assets/remoteEntry.js").is_file()
         )
 
     def test_bridge_uses_token_only_in_internal_headers(self):
@@ -129,6 +129,33 @@ class MoviePilotPluginTests(unittest.TestCase):
         bridge = bridge_client.CleanupBridge(token_file="/definitely/missing")
         with self.assertRaisesRegex(RuntimeError, "控制令牌不可用"):
             bridge.request("/health")
+
+    def test_status_and_config_error_paths_use_safe_wrappers(self):
+        plugin_source = (PLUGIN_ROOT / "__init__.py").read_text(encoding="utf-8")
+        self.assertIn("def _bridge_request(", plugin_source)
+        self.assertIn('status, health = self._bridge_request("/health")', plugin_source)
+        self.assertIn(
+            'snapshot_status, snapshot = self._bridge_request("/v1/snapshot")',
+            plugin_source,
+        )
+        self.assertIn('"code": "cleanup_bridge_not_ready"', plugin_source)
+
+        config_source = (
+            PLUGIN_ROOT / "src/components/Config.vue"
+        ).read_text(encoding="utf-8")
+        self.assertIn("function apiErrorMessage(err, fallback)", config_source)
+        self.assertGreaterEqual(config_source.count("apiErrorMessage(err,"), 4)
+        self.assertNotIn(
+            "err?.message || payload?.error?.message",
+            config_source,
+        )
+
+        config_bundle = (
+            PLUGIN_ROOT
+            / "dist/v1.0.21/assets/__federation_expose_Config-Brnz1KQ_.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("function apiErrorMessage(err, fallback)", config_bundle)
+        self.assertGreaterEqual(config_bundle.count("apiErrorMessage(err,"), 4)
 
     def test_vue_page_exposes_all_three_execution_levels(self):
         source = (PLUGIN_ROOT / "src/provider.js").read_text(encoding="utf-8")
