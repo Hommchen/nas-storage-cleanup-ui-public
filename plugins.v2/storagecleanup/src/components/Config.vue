@@ -39,6 +39,11 @@ function unwrap(response) {
   return response
 }
 
+function apiErrorMessage(err, fallback) {
+  const payload = err?.response?.data || err?.data || {}
+  return payload?.error?.message || payload?.message || err?.message || fallback
+}
+
 function applyConfig(config) {
   const hitAndRunSites = Array.isArray(config.hit_and_run_sites)
     ? config.hit_and_run_sites.map(item => ({
@@ -129,7 +134,7 @@ async function load() {
     probe.value = payload.probe || null
     if (!probe.value?.ok) void discover()
   } catch (err) {
-    error.value = err?.message || '无法读取清理台配置。'
+    error.value = apiErrorMessage(err, '无法读取清理台配置。')
   } finally {
     loading.value = false
   }
@@ -150,7 +155,7 @@ async function discover() {
       advancedOpen.value = true
     }
   } catch (err) {
-    discoveryError.value = err?.message || '自动发现失败。'
+    discoveryError.value = apiErrorMessage(err, '自动发现失败。')
     advancedOpen.value = true
   } finally {
     discovering.value = false
@@ -179,7 +184,7 @@ async function applyDiscovery() {
   } catch (err) {
     const payload = err?.response?.data || err?.data
     probe.value = payload?.probe || probe.value
-    error.value = err?.message || payload?.error?.message || '自动配置保存失败。'
+    error.value = apiErrorMessage(err, '自动配置保存失败。')
   } finally {
     saving.value = false
   }
@@ -203,7 +208,7 @@ async function save() {
   } catch (err) {
     const payload = err?.response?.data || err?.data
     probe.value = payload?.probe || probe.value
-    error.value = err?.message || payload?.error?.message || '配置保存失败。'
+    error.value = apiErrorMessage(err, '配置保存失败。')
   } finally {
     saving.value = false
   }
