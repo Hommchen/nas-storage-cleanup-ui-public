@@ -310,6 +310,136 @@
       "identity": "tv:manual:zhang-jian-legendary-entrepreneur",
       "source": "https://www.themoviedb.org/tv/329132",
       "verifiedAt": "2026-07-30T16:14:00+08:00"
+    },
+    {
+      "query": "（暗黑）Dark 2017-2020 S01-S03 2160p WEB-DL HEVC DDP5.1（S01E07 1080p）-PiNAS",
+      "kind": "tv",
+      "title": "暗黑",
+      "englishTitle": "Dark",
+      "year": "2017",
+      "identity": "tv:manual:dark-2017",
+      "source": "https://www.netflix.com/title/80100172",
+      "verifiedAt": "2026-08-21T21:00:00+08:00"
+    },
+    {
+      "query": "（暗黑）Dark 2017-2020 S01-S03 2160p WEB-DL HEVC DDP5 1（S01E07 1080p）-PiNAS",
+      "kind": "tv",
+      "title": "暗黑",
+      "englishTitle": "Dark",
+      "year": "2017",
+      "identity": "tv:manual:dark-2017",
+      "source": "https://www.netflix.com/title/80100172",
+      "verifiedAt": "2026-08-21T21:00:00+08:00"
+    },
+    {
+      "query": "饥饿游戏3 嘲笑鸟(上) 4K REMUX原盘 国英双音 内封字幕",
+      "kind": "movie",
+      "title": "饥饿游戏3：嘲笑鸟（上）",
+      "englishTitle": "The Hunger Games: Mockingjay - Part 1",
+      "year": "2014",
+      "identity": "movie:manual:hunger-games-mockingjay-part-1",
+      "source": "https://www.themoviedb.org/movie/131631",
+      "verifiedAt": "2026-08-21T21:00:00+08:00"
+    },
+    {
+      "query": "坎大哈 2023 1080p 中英特效字幕￡CMCT春天",
+      "kind": "movie",
+      "title": "坎大哈",
+      "englishTitle": "Kandahar",
+      "year": "2023",
+      "identity": "movie:manual:kandahar-2023",
+      "source": "https://www.themoviedb.org/movie/717930-kandahar",
+      "verifiedAt": "2026-08-21T21:00:00+08:00"
+    },
+    {
+      "query": "Pandora",
+      "kind": "movie",
+      "title": "潘多拉",
+      "englishTitle": "Pandora",
+      "year": "2016",
+      "identity": "movie:manual:pandora-2016-short",
+      "source": "https://www.themoviedb.org/movie/1080713",
+      "verifiedAt": "2026-08-21T21:00:00+08:00"
+    },
+    {
+      "query": "Pandora 2016 1080p BluRay DTS x265-10bit-HDS",
+      "kind": "movie",
+      "title": "潘多拉",
+      "englishTitle": "Pandora",
+      "year": "2016",
+      "identity": "movie:manual:pandora-2016-short",
+      "source": "https://www.themoviedb.org/movie/1080713",
+      "verifiedAt": "2026-08-21T21:00:00+08:00"
+    },
+    {
+      "query": "Dune (2021) [2160p] [4K] [WEB] [HDR] [5 1] [YTS MX]",
+      "kind": "movie",
+      "title": "沙丘",
+      "englishTitle": "Dune",
+      "year": "2021",
+      "identity": "movie:manual:dune-2021",
+      "source": "https://www.themoviedb.org/movie/438631-dune",
+      "verifiedAt": "2026-08-21T21:00:00+08:00"
+    },
+    {
+      "query": "23 000 Leben (2026) 2160p 4K WEB 5 1-WORLD",
+      "kind": "movie",
+      "title": "23000条生命",
+      "englishTitle": "23 000 Leben",
+      "year": "2026",
+      "identity": "movie:manual:23000-leben-2026",
+      "source": "https://www.imdb.com/title/tt41983440/",
+      "verifiedAt": "2026-08-21T21:00:00+08:00"
+    },
+    {
+      "query": "Frontline Detective - Unforgivable Crime 2022 HDTV 1080i MP1 H 264-TPTV",
+      "kind": "movie",
+      "title": "一线侦探：不可原谅的罪行",
+      "englishTitle": "Frontline Detective - Unforgivable Crime",
+      "year": "2022",
+      "identity": "movie:manual:frontline-detective-unforgivable-crime",
+      "source": "https://www.themoviedb.org/search?query=Frontline%20Detective%20Unforgivable%20Crime",
+      "verifiedAt": "2026-08-21T21:00:00+08:00"
+    },
+    {
+      "query": "Good Luck to You All",
+      "kind": "movie",
+      "title": "祝你好运",
+      "englishTitle": "Good Luck to You All",
+      "year": "2025",
+      "identity": "movie:manual:good-luck-to-you-all",
+      "source": "https://www.themoviedb.org/search?query=Good%20Luck%20to%20You%20All",
+      "verifiedAt": "2026-08-21T21:00:00+08:00"
+    },
+    {
+      "query": "[祝你好运] Good Luck to You 2025 2160p 60fps WEB-DL HEVC DDP 2Audios-QHstudIo",
+      "kind": "movie",
+      "title": "祝你好运",
+      "englishTitle": "Good Luck to You All",
+      "year": "2025",
+      "identity": "movie:manual:good-luck-to-you-all",
+      "source": "https://www.themoviedb.org/search?query=Good%20Luck%20to%20You%20All",
+      "verifiedAt": "2026-08-21T21:00:00+08:00"
+    },
+    {
+      "query": "Kelsey Cook: Happy Hour",
+      "kind": "movie",
+      "title": "凯尔茜·库克：欢乐时光",
+      "englishTitle": "Kelsey Cook: Happy Hour",
+      "year": "2026",
+      "identity": "movie:manual:kelsey-cook-happy-hour-2026",
+      "source": "https://www.netflix.com/title/82772041",
+      "verifiedAt": "2026-08-21T21:00:00+08:00"
+    },
+    {
+      "query": "Trapped in a Dating Sim The World of Otome Games Is Tough for Mobs S02 2026 1080p Baha WEB-DL H 264 AAC-FROGWeb",
+      "kind": "tv",
+      "title": "乙女游戏世界对路人角色很不友好",
+      "englishTitle": "Trapped in a Dating Sim: The World of Otome Games Is Tough for Mobs",
+      "year": "2026",
+      "identity": "tv:manual:trapped-in-dating-sim-2026",
+      "source": "https://thetvdb.com/series/trapped-in-a-dating-sim-the-world-of-otome-games-is-tough-for-mobs",
+      "verifiedAt": "2026-08-21T21:00:00+08:00"
     }
   ]
 }

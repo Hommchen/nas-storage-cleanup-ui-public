@@ -658,6 +658,114 @@ class MediaMetadataTests(unittest.TestCase):
         self.assertTrue(merged[0]["metadataVerified"])
         self.assertFalse(merged[0]["protected"])
 
+    def test_current_unresolved_release_names_have_exact_overrides(self):
+        cases = [
+            (
+                "（暗黑）Dark 2017-2020 S01-S03 2160p WEB-DL HEVC DDP5.1（S01E07 1080p）-PiNAS",
+                "暗黑",
+                "Dark",
+                "tv",
+            ),
+            (
+                "饥饿游戏3 嘲笑鸟(上) 4K REMUX原盘 国英双音 内封字幕",
+                "饥饿游戏3：嘲笑鸟（上）",
+                "The Hunger Games: Mockingjay - Part 1",
+                "movie",
+            ),
+            (
+                "坎大哈 2023 1080p 中英特效字幕￡CMCT春天",
+                "坎大哈",
+                "Kandahar",
+                "movie",
+            ),
+            ("Pandora", "潘多拉", "Pandora", "movie"),
+            (
+                "Dune (2021) [2160p] [4K] [WEB] [HDR] [5 1] [YTS MX]",
+                "沙丘",
+                "Dune",
+                "movie",
+            ),
+            (
+                "23 000 Leben (2026) 2160p 4K WEB 5 1-WORLD",
+                "23000条生命",
+                "23 000 Leben",
+                "movie",
+            ),
+            (
+                "Frontline Detective - Unforgivable Crime 2022 HDTV 1080i MP1 H 264-TPTV",
+                "一线侦探：不可原谅的罪行",
+                "Frontline Detective - Unforgivable Crime",
+                "movie",
+            ),
+            (
+                "Good Luck to You All",
+                "祝你好运",
+                "Good Luck to You All",
+                "movie",
+            ),
+            (
+                "Kelsey Cook: Happy Hour",
+                "凯尔茜·库克：欢乐时光",
+                "Kelsey Cook: Happy Hour",
+                "movie",
+            ),
+            (
+                "Trapped in a Dating Sim The World of Otome Games Is Tough for Mobs S02 2026 1080p Baha WEB-DL H 264 AAC-FROGWeb",
+                "乙女游戏世界对路人角色很不友好",
+                "Trapped in a Dating Sim: The World of Otome Games Is Tough for Mobs",
+                "tv",
+            ),
+        ]
+        overrides = json.loads(
+            (
+                Path(__file__).resolve().parents[1]
+                / "db/media-name-overrides.json"
+            ).read_text(encoding="utf-8")
+        )
+        items = []
+        for index, (query, title, english, kind) in enumerate(cases):
+            item = raw_resource(
+                resource_id=f"res_live_{index}",
+                title="中文名待识别" if kind == "movie" else query,
+                english=query,
+                edition="电影" if kind == "movie" else "S02 · 未入库",
+                media_type="电影" if kind == "movie" else "电视剧",
+                private=private_record(
+                    identity=f"qb:live-{index}",
+                    task_hash=f"{index + 1:040d}",
+                    path=f"/allowed/live-{index}.mkv",
+                    inode=100 + index,
+                ),
+                library=False,
+                year="",
+            )
+            if query == "Pandora":
+                item["title"] = "潘多拉"
+                item["library"] = True
+                item["_private"]["identity"] = "movie:tmdb:1080713"
+            elif query == "Good Luck to You All":
+                item["title"] = query
+                item["library"] = True
+                item["_private"]["identity"] = "movie:tmdb:1432625"
+            elif query == "Kelsey Cook: Happy Hour":
+                item["title"] = query
+                item["library"] = True
+                item["_private"]["identity"] = "movie:tmdb:1738070"
+            items.append(item)
+
+        cache, applied = apply_metadata_overrides(
+            items, {"version": 1, "entries": {}}, overrides
+        )
+        merged, _ = enrich_and_merge_resources(items, cache)
+
+        self.assertEqual(applied, len(cases))
+        self.assertEqual(len(merged), len(cases))
+        self.assertEqual(
+            {item["title"] for item in merged},
+            {title for _, title, _, _ in cases},
+        )
+        self.assertTrue(all(item["metadataVerified"] for item in merged))
+
     def test_merge_preserves_moviepilot_index_identity(self):
         index = {
             "id": 188,
