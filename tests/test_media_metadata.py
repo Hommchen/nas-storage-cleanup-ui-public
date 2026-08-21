@@ -766,6 +766,45 @@ class MediaMetadataTests(unittest.TestCase):
         )
         self.assertTrue(all(item["metadataVerified"] for item in merged))
 
+    def test_companion_release_name_has_exact_override(self):
+        query = "Companion 2025 Hybrid 2160p UHD BDRemux DV HDR10Plus HEVC-Нечипорук mkv"
+        item = raw_resource(
+            resource_id="res_companion",
+            title="完美伴侣",
+            english="Companion",
+            edition="电影",
+            media_type="电影",
+            year="2025",
+            private=private_record(
+                identity="movie:tmdb:1084199",
+                task_hash="c" * 40,
+                path="/allowed/companion.mkv",
+                inode=1901,
+            ),
+            library=True,
+        )
+        overrides = json.loads(
+            (
+                Path(__file__).resolve().parents[1]
+                / "db/media-name-overrides.json"
+            ).read_text(encoding="utf-8")
+        )
+
+        cache, applied = apply_metadata_overrides(
+            [{**item, "englishTitle": query}],
+            {"version": 1, "entries": {}},
+            overrides,
+        )
+        merged, stats = enrich_and_merge_resources(
+            [{**item, "englishTitle": query}], cache
+        )
+
+        self.assertEqual(applied, 1)
+        self.assertEqual(merged[0]["title"], "完美伴侣")
+        self.assertEqual(merged[0]["englishTitle"], "Companion")
+        self.assertTrue(merged[0]["metadataVerified"])
+        self.assertEqual(stats["metadataUnresolvedQbResources"], 0)
+
     def test_merge_preserves_moviepilot_index_identity(self):
         index = {
             "id": 188,
