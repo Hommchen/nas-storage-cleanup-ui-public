@@ -440,6 +440,16 @@
       "identity": "tv:manual:trapped-in-dating-sim-2026",
       "source": "https://thetvdb.com/series/trapped-in-a-dating-sim-the-world-of-otome-games-is-tough-for-mobs",
       "verifiedAt": "2026-08-21T21:00:00+08:00"
+    },
+    {
+      "query": "Companion 2025 Hybrid 2160p UHD BDRemux DV HDR10Plus HEVC-Нечипорук mkv",
+      "kind": "movie",
+      "title": "完美伴侣",
+      "englishTitle": "Companion",
+      "year": "2025",
+      "identity": "movie:manual:companion-2025",
+      "source": "https://www.themoviedb.org/movie/1084199-companion",
+      "verifiedAt": "2026-08-21T22:15:00+08:00"
     }
   ]
 }
