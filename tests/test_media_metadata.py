@@ -805,6 +805,69 @@ class MediaMetadataTests(unittest.TestCase):
         self.assertTrue(merged[0]["metadataVerified"])
         self.assertEqual(stats["metadataUnresolvedQbResources"], 0)
 
+    def test_remaining_live_release_aliases_have_exact_overrides(self):
+        cases = [
+            (
+                "The Strangers Chapter 3 (2026) [1080p] [WEBRip] [5 1] [YTS BZ]",
+                "陌生人：第三章",
+                "The Strangers: Chapter 3",
+                "movie",
+            ),
+            (
+                "[师兄太稳健] Pull Strings 2026 S01 Complete 2160p WEB-DL 60Fps H265 10bit AAC-UBWEB",
+                "师兄太稳健",
+                "Pull Strings",
+                "tv",
+            ),
+            (
+                "Lost: MH 370",
+                "失踪：马航370",
+                "Lost: MH 370",
+                "movie",
+            ),
+            (
+                "猎杀T34 T-34 2019 2160p WEB-DL H 264 AAC 2 0-CSWEB",
+                "猎杀T34",
+                "T-34",
+                "movie",
+            ),
+        ]
+        overrides = json.loads(
+            (
+                Path(__file__).resolve().parents[1]
+                / "db/media-name-overrides.json"
+            ).read_text(encoding="utf-8")
+        )
+        items = [
+            raw_resource(
+                resource_id=f"res_remaining_{index}",
+                title="中文名待识别" if kind == "movie" else query,
+                english=query,
+                edition="电影" if kind == "movie" else "S01 · 未入库",
+                media_type="电影" if kind == "movie" else "电视剧",
+                private=private_record(
+                    identity=f"qb:remaining-{index}",
+                    task_hash=f"{index + 11:040d}",
+                    path=f"/allowed/remaining-{index}.mkv",
+                    inode=200 + index,
+                ),
+                library=query == "Lost: MH 370",
+                year="2014" if query == "Lost: MH 370" else "",
+            )
+            for index, (query, _title, _english, kind) in enumerate(cases)
+        ]
+        cache, applied = apply_metadata_overrides(
+            items, {"version": 1, "entries": {}}, overrides
+        )
+        merged, _ = enrich_and_merge_resources(items, cache)
+
+        self.assertEqual(applied, len(cases))
+        self.assertEqual(
+            {(item["title"], item["englishTitle"]) for item in merged},
+            {(title, english) for _, title, english, _ in cases},
+        )
+        self.assertTrue(all(item["metadataVerified"] for item in merged))
+
     def test_merge_preserves_moviepilot_index_identity(self):
         index = {
             "id": 188,
