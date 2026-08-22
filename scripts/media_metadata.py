@@ -33,6 +33,32 @@ EPISODE_VALUE_RE = re.compile(r"(?i)^S(\d{1,2})E(\d{1,3})$")
 DOWNLOAD_STATES = frozenset(
     {"downloading", "forceddl", "stalleddl", "metadl", "checkingdl"}
 )
+RELEASE_QUALITY_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9])(?:2160p|1080p|720p|576p|480p|4k|8k|uhd|fhd|hd|"
+    r"web[- ]?dl|webrip|web|bluray|blu[- ]?ray|bdrip|bdremux|remux|hdtv|"
+    r"hdr10(?:plus)?|hdr|dv|dolby[ -]?vision|hevc|x26[45]|h26[45]|avc|"
+    r"aac(?:[0-9.]+)?|ac3|ddp(?:[0-9.]+)?|dts(?:[- ]?hd)?|truehd|atmos|"
+    r"remastered|proper|repack|complete)(?![A-Za-z0-9])"
+)
+RELEASE_BRACKET_RE = re.compile(r"^\s*[\[【（(]([^\]】）)]+)[\]】）)]\s*")
+RELEASE_SEASON_MARK_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9])S\d{1,2}(?:E\d{1,3})?(?![A-Za-z0-9])"
+)
+RELEASE_CJK_TAGS = frozenset(
+    {
+        "国语",
+        "粤语",
+        "中字",
+        "简中",
+        "繁中",
+        "双语",
+        "配音",
+        "原声",
+        "合集",
+        "修复",
+        "收藏",
+    }
+)
 
 
 def has_cjk(value: object) -> bool:
@@ -63,6 +89,95 @@ def _release_normalized(value: object) -> str:
         " ",
         re.sub(r"[^0-9A-Za-z\u3400-\u9fff]+", " ", str(value or "")),
     ).strip().casefold()
+
+
+def _release_prefix(query: str) -> tuple[str, str, str]:
+    """Return the title-bearing prefix, year, and first season marker."""
+
+    text = re.sub(r"(?i)\.(?:mkv|mp4|mka|iso|avi)$", "", query).strip()
+    text = re.sub(r"[._]+", " ", text)
+    year_match = YEAR_RE.search(text)
+    season_match = RELEASE_SEASON_MARK_RE.search(text)
+    quality_match = RELEASE_QUALITY_RE.search(text)
+    stops = [
+        match.start()
+        for match in (year_match, season_match, quality_match)
+        if match
+    ]
+    prefix = text[: min(stops)].strip() if stops else text
+    year = year_match.group(1) if year_match else ""
+    season = season_match.group(0).upper() if season_match else ""
+    return prefix, year, season
+
+
+def _parse_release_label(query: object) -> tuple[str, str, str, str]:
+    """Extract explicit bilingual title parts without guessing a provider ID.
+
+    This parser only trusts a CJK label that is visibly paired with a Latin
+    title in the same release name. It is deliberately conservative: a
+    result can create a name-based identity, but never a TMDB identity.
+    """
+
+    raw = _clean_text(query, maximum=2000)
+    prefix, year, season = _release_prefix(raw)
+    cjk_title = ""
+    bracket = RELEASE_BRACKET_RE.match(prefix)
+    if bracket:
+        candidate = _clean_text(bracket.group(1), maximum=120)
+        if has_cjk(candidate) and candidate not in RELEASE_CJK_TAGS:
+            cjk_title = candidate
+        prefix = prefix[bracket.end() :].strip()
+    else:
+        prefix = re.sub(
+            r"^\s*\[(?:国语|粤语|中字|简中|繁中|双语|配音|原声)\]\s*",
+            "",
+            prefix,
+            flags=re.IGNORECASE,
+        )
+    if not cjk_title:
+        leading = re.match(
+            r"^\s*([\u3400-\u9fff][\u3400-\u9fff：:·、，,\-— ]{1,80})"
+            r"\s+(?=[A-Za-z])",
+            prefix,
+        )
+        if leading:
+            cjk_title = _clean_text(leading.group(1), maximum=120)
+            prefix = prefix[leading.end() :].strip()
+    if not cjk_title and season:
+        season_position = RELEASE_SEASON_MARK_RE.search(raw)
+        if season_position:
+            before_season = re.sub(r"[._]+", " ", raw[: season_position.start()])
+            leading_cjk = re.match(
+                r"^\s*([\u3400-\u9fff][\u3400-\u9fff：:·、，,\-— ]{1,80})",
+                before_season,
+            )
+            if leading_cjk:
+                cjk_title = _clean_text(leading_cjk.group(1), maximum=120)
+    english_title = _clean_text(prefix, maximum=300)
+    if not has_latin(english_title):
+        english_title = ""
+    if not english_title and season:
+        season_position = RELEASE_SEASON_MARK_RE.search(raw)
+        if season_position:
+            after_season = raw[season_position.end() :]
+            after_prefix, _, _ = _release_prefix(after_season)
+            if has_latin(after_prefix):
+                english_title = _clean_text(after_prefix, maximum=300)
+    english_title = re.sub(r"^[\[【（(]+|[\]】）)]+$", "", english_title)
+    return cjk_title, english_title, year, season
+
+
+def _metadata_resolution_query(item: dict[str, Any]) -> str:
+    """Build a stable resolver query while retaining the original cache key."""
+
+    raw_query = _metadata_query(item)
+    cjk_title, english_title, parsed_year, season = _parse_release_label(
+        raw_query
+    )
+    year = parsed_year or _clean_text(item.get("year"), maximum=4)
+    parts = [part for part in (cjk_title, english_title, year, season) if part]
+    canonical = _clean_text(" ".join(parts), maximum=2000)
+    return canonical or raw_query
 
 
 def _matching_qb_release_name(item: dict[str, Any]) -> str:
@@ -595,6 +710,30 @@ def _retry_due(entry: dict[str, Any], now: datetime) -> bool:
     return checked_at.astimezone(timezone.utc) + RETRY_AFTER <= now
 
 
+def _resolved_alias_entry(
+    entries: dict[str, dict[str, Any]],
+    item: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Reuse a confirmed identity for a new quality/site release variant."""
+
+    target = _metadata_resolution_query(item).casefold()
+    kind = _media_kind(item)
+    type_label = "电视剧" if kind == "tv" else "电影"
+    for entry in entries.values():
+        if entry.get("status") != "resolved" or entry.get("kind") != kind:
+            continue
+        alias_query = _metadata_resolution_query(
+            {
+                "type": type_label,
+                "library": False,
+                "englishTitle": entry.get("query"),
+            }
+        ).casefold()
+        if alias_query == target:
+            return copy.deepcopy(entry)
+    return None
+
+
 def _resolver_source(items: list[dict[str, Any]], workers: int) -> str:
     encoded = base64.b64encode(
         json.dumps(items, ensure_ascii=False).encode("utf-8")
@@ -619,10 +758,19 @@ def clean(value):
     return re.sub(r"\\s+", " ", str(value or "")).strip()
 
 def parsed(item):
-    meta = MetaInfo(item["query"])
+    try:
+        meta = MetaInfo(item.get("resolutionQuery") or item["query"])
+    except Exception:
+        meta = None
     parsed_cn = clean(getattr(meta, "cn_name", ""))
     parsed_en = clean(getattr(meta, "en_name", "") or getattr(meta, "name", ""))
     year = clean(getattr(meta, "year", ""))
+    if not parsed_cn:
+        parsed_cn = clean(item.get("parsedChinese", ""))
+    if not parsed_en:
+        parsed_en = clean(item.get("parsedEnglish", ""))
+    if not year:
+        year = clean(item.get("parsedYear", ""))
     if not parsed_cn:
         prefix = re.match(r"^\\s*[\\[【]([^\\]】]+)[\\]】]", item["query"])
         if prefix and has_cjk(prefix.group(1)):
@@ -821,6 +969,15 @@ def resolve_media_names(
         entry = entries.get(key)
         if entry and entry.get("status") == "resolved":
             continue
+        if not entry:
+            alias_entry = _resolved_alias_entry(entries, item)
+            if alias_entry:
+                alias_entry["query"] = _metadata_query(item)
+                alias_entry["checkedAt"] = alias_entry.get(
+                    "checkedAt", now.isoformat(timespec="seconds")
+                )
+                entries[key] = alias_entry
+                continue
         if (
             entry
             and not retry_unresolved
@@ -833,7 +990,18 @@ def resolve_media_names(
         if not query:
             continue
         source_by_key[key] = item
-        candidate = {"key": key, "query": query, "kind": _media_kind(item)}
+        parsed_cn, parsed_en, parsed_year, _season = _parse_release_label(
+            query
+        )
+        candidate = {
+            "key": key,
+            "query": query,
+            "resolutionQuery": _metadata_resolution_query(item),
+            "kind": _media_kind(item),
+            "parsedChinese": parsed_cn,
+            "parsedEnglish": parsed_en,
+            "parsedYear": parsed_year,
+        }
         hint = _identity_hint(item)
         if hint:
             candidate["tmdbId"] = int(hint.rsplit(":", 1)[1])

@@ -8,7 +8,10 @@ from pathlib import Path
 import unittest
 
 from scripts.media_metadata import (
+    _metadata_resolution_query,
+    _parse_release_label,
     _metadata_query,
+    _resolved_alias_entry,
     _task_display_status,
     _validated_result,
     apply_metadata_overrides,
@@ -657,6 +660,69 @@ class MediaMetadataTests(unittest.TestCase):
         self.assertEqual(merged[0]["year"], "2026")
         self.assertTrue(merged[0]["metadataVerified"])
         self.assertFalse(merged[0]["protected"])
+
+    def test_release_parser_extracts_bilingual_title_from_quality_variants(self):
+        cases = [
+            (
+                "[师兄太稳健] Pull Strings 2026 S01 Complete 2160p WEB-DL AAC",
+                ("师兄太稳健", "Pull Strings", "2026", "S01"),
+            ),
+            (
+                "[国语].斩神之凡尘神域.Slay.The.Gods.S02.2026.1080p.WEB-DL",
+                ("斩神之凡尘神域", "Slay The Gods", "2026", "S02"),
+            ),
+            (
+                "最后生还者S01.The.Last.of.Us.2023.1080p.WEB-DL",
+                ("最后生还者", "The Last of Us", "2023", "S01"),
+            ),
+        ]
+
+        for query, expected in cases:
+            with self.subTest(query=query):
+                self.assertEqual(_parse_release_label(query), expected)
+
+    def test_release_resolution_query_ignores_quality_and_release_group(self):
+        variants = [
+            "Hacksaw.Ridge.2016.UHD.BluRay.2160p.10bit.HDR-beAst",
+            "Hacksaw Ridge 2016 1080p WEB-DL H264-GROUP",
+        ]
+
+        normalized = {
+            _metadata_resolution_query(
+                {
+                    "type": "电影",
+                    "library": False,
+                    "englishTitle": query,
+                }
+            )
+            for query in variants
+        }
+
+        self.assertEqual(normalized, {"Hacksaw Ridge 2016"})
+
+    def test_resolved_identity_is_reused_for_new_quality_variant(self):
+        entry = {
+            "query": "Hacksaw Ridge 2016 UHD BluRay 2160p HDR-beAst",
+            "kind": "movie",
+            "status": "resolved",
+            "checkedAt": "2026-08-22T00:00:00+00:00",
+            "title": "血战钢锯岭",
+            "englishTitle": "Hacksaw Ridge",
+            "year": "2016",
+            "identity": "movie:manual:hacksaw-ridge-2016",
+            "tmdbId": None,
+        }
+        alias = _resolved_alias_entry(
+            {"a" * 64: entry},
+            {
+                "type": "电影",
+                "library": False,
+                "englishTitle": "Hacksaw Ridge 2016 1080p WEB-DL H264-GROUP",
+            },
+        )
+
+        self.assertIsNotNone(alias)
+        self.assertEqual(alias["identity"], entry["identity"])
 
     def test_current_unresolved_release_names_have_exact_overrides(self):
         cases = [
