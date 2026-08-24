@@ -96,7 +96,19 @@ def _release_prefix(query: str) -> tuple[str, str, str]:
 
     text = re.sub(r"(?i)\.(?:mkv|mp4|mka|iso|avi)$", "", query).strip()
     text = re.sub(r"[._]+", " ", text)
-    year_match = YEAR_RE.search(text)
+    year_matches = list(YEAR_RE.finditer(text))
+    # A number in the title is common in Asian releases (for example
+    # ``Hijack 1971 2024``).  When two years are present, the final year
+    # before the quality marker is the release/season year and the earlier
+    # one remains part of the title.  Using the first match turned that
+    # release into a false ``Hijack (1971)`` candidate.
+    year_match = year_matches[-1] if year_matches else None
+    if len(year_matches) >= 2:
+        separator = text[year_matches[0].end() : year_matches[1].start()]
+        if re.fullmatch(r"\s*[-–—]\s*", separator):
+            # ``2017-2020`` is a series/runtime range, not a title year
+            # followed by a release year.
+            year_match = year_matches[0]
     season_match = RELEASE_SEASON_MARK_RE.search(text)
     quality_match = RELEASE_QUALITY_RE.search(text)
     stops = [
@@ -143,6 +155,17 @@ def _parse_release_label(query: object) -> tuple[str, str, str, str]:
         if leading:
             cjk_title = _clean_text(leading.group(1), maximum=120)
             prefix = prefix[leading.end() :].strip()
+    if not cjk_title and has_cjk(prefix):
+        # Chinese-only qB names are still useful resolver input.  The old
+        # parser required a Latin companion and reduced ``隐形人 2020`` to
+        # only ``2020``, guaranteeing a failed lookup despite provider data
+        # being available for the Chinese title.
+        leading_cjk = re.match(
+            r"^\s*([\u3400-\u9fff][\u3400-\u9fff：:·、，,\-— ]{0,80})\s*$",
+            prefix,
+        )
+        if leading_cjk:
+            cjk_title = _clean_text(leading_cjk.group(1), maximum=120)
     if not cjk_title and season:
         season_position = RELEASE_SEASON_MARK_RE.search(raw)
         if season_position:
@@ -260,6 +283,16 @@ def needs_bilingual_name(item: dict[str, Any]) -> bool:
 def bilingual_name_verified(item: dict[str, Any]) -> bool:
     """A cleanup row is identifiable when its title is sufficiently clear."""
 
+    if (
+        item.get("metadataResolved") is True
+        and has_latin(item.get("title"))
+        and has_latin(item.get("englishTitle"))
+        and not any(
+            marker in str(item.get("title") or "")
+            for marker in ("待识别", "待核")
+        )
+    ):
+        return True
     return not needs_bilingual_name(item)
 
 
@@ -557,9 +590,16 @@ def sanitize_metadata_cache(value: object) -> dict[str, dict[str, Any]]:
         year = _clean_text(raw_entry.get("year"), maximum=4)
         identity = _clean_text(raw_entry.get("identity"), maximum=300)
         tmdb_id = raw_entry.get("tmdbId")
+        provider_verified = raw_entry.get("providerVerified") is True
+        provider_title = (
+            isinstance(tmdb_id, int)
+            and tmdb_id > 0
+            and has_latin(title)
+            and provider_verified
+        )
         if (
             not title
-            or not has_cjk(title)
+            or (not has_cjk(title) and not provider_title)
             or not english_title
             or not has_latin(english_title)
             or not identity
@@ -579,6 +619,7 @@ def sanitize_metadata_cache(value: object) -> dict[str, dict[str, Any]]:
             "year": year,
             "identity": identity,
             "tmdbId": tmdb_id,
+            "providerVerified": provider_verified,
         }
     return {"version": CACHE_VERSION, "entries": entries}
 
@@ -745,6 +786,7 @@ import hashlib
 import json
 import re
 from app.chain.media import MediaChain
+from app.chain.douban import DoubanChain
 from app.core.metainfo import MetaInfo
 from app.schemas.types import MediaType
 
@@ -756,6 +798,9 @@ def has_cjk(value):
 
 def clean(value):
     return re.sub(r"\\s+", " ", str(value or "")).strip()
+
+def normalized(value):
+    return re.sub(r"[^0-9A-Za-z\\u3400-\\u9fff]+", "", clean(value)).casefold()
 
 def parsed(item):
     try:
@@ -777,6 +822,86 @@ def parsed(item):
             parsed_cn = clean(prefix.group(1))
     return meta, parsed_cn, parsed_en, year
 
+def info_record(record, info):
+    season_years = getattr(info, "season_years", {{}}) or {{}}
+    return {{
+        "key": record["key"],
+        "query": record["query"],
+        "kind": record["kind"],
+        "status": "recognized",
+        "parsedChinese": record.get("parsedChinese", ""),
+        "parsedEnglish": record.get("parsedEnglish", ""),
+        "parsedYear": record.get("parsedYear", ""),
+        "parsedSeason": record.get("parsedSeason"),
+        "title": clean(getattr(info, "title", "")),
+        "originalTitle": clean(getattr(info, "original_title", "")),
+        "englishTitle": clean(getattr(info, "en_title", "")),
+        "year": clean(getattr(info, "year", "")),
+        "resultType": str(getattr(info, "type", "")),
+        "tmdbId": getattr(info, "tmdb_id", None),
+        "imdbId": clean(getattr(info, "imdb_id", "")),
+        "seasonYears": {{
+            str(key): clean(value) for key, value in season_years.items()
+        }},
+    }}
+
+def douban_fallback(record):
+    # Use MoviePilot's configured Douban search when the primary chain misses.
+    try:
+        kind = record["kind"]
+        mtype = MediaType.TV if kind == "tv" else MediaType.MOVIE
+        target_names = {{
+            normalized(value)
+            for value in (
+                record.get("parsedChinese"),
+                record.get("parsedEnglish"),
+                getattr(record.get("_meta"), "name", ""),
+            )
+            if normalized(value)
+        }}
+        year = clean(record.get("parsedYear", ""))
+        candidates = []
+        for name in (
+            record.get("parsedChinese"),
+            record.get("parsedEnglish"),
+            getattr(record.get("_meta"), "name", ""),
+        ):
+            name = clean(name)
+            if not name:
+                continue
+            probe = MetaInfo(name)
+            probe.type = mtype
+            for info in (DoubanChain().search_medias(probe) or []):
+                info_type = str(getattr(info, "type", "")).casefold()
+                if (kind == "tv" and "tv" not in info_type) or (
+                    kind == "movie" and "movie" not in info_type
+                ):
+                    continue
+                names = [
+                    getattr(info, "title", ""),
+                    getattr(info, "original_title", ""),
+                    getattr(info, "en_title", ""),
+                    *(getattr(info, "names", []) or []),
+                ]
+                exact = any(normalized(value) in target_names for value in names)
+                info_year = clean(getattr(info, "year", ""))
+                year_match = bool(year and info_year == year)
+                if exact and (not year or year_match):
+                    candidates.append((int(year_match), int(exact), info))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        identities = {{
+            str(getattr(info, "tmdb_id", ""))
+            for _, _, info in candidates
+            if getattr(info, "tmdb_id", None)
+        }}
+        if len(identities) != 1:
+            return None
+        return info_record(record, candidates[0][2])
+    except Exception:
+        return None
+
 prepared = []
 network_items = []
 for item in ITEMS:
@@ -789,6 +914,7 @@ for item in ITEMS:
             "parsedChinese": parsed_cn,
             "parsedEnglish": parsed_en,
             "parsedYear": year,
+            "parsedSeason": getattr(meta, "begin_season", None),
             "tmdbId": item.get("tmdbId"),
         }}
         if (
@@ -821,8 +947,11 @@ def recognize(record):
             cache=True,
         )
         if not info:
-            record["status"] = "unresolved"
+            fallback = douban_fallback(record)
             record.pop("_meta", None)
+            if fallback:
+                return fallback
+            record["status"] = "unresolved"
             return record
         record.update({{
             "status": "recognized",
@@ -832,8 +961,18 @@ def recognize(record):
             "year": clean(getattr(info, "year", "")),
             "resultType": str(getattr(info, "type", "")),
             "tmdbId": getattr(info, "tmdb_id", None),
+            "imdbId": clean(getattr(info, "imdb_id", "")),
+            "seasonYears": {{
+                str(key): clean(value)
+                for key, value in (getattr(info, "season_years", {{}}) or {{}}).items()
+            }},
         }})
     except Exception:
+        pass
+    if record.get("status") != "recognized":
+        fallback = douban_fallback(record)
+        if fallback:
+            return fallback
         record["status"] = "unresolved"
     record.pop("_meta", None)
     return record
@@ -916,24 +1055,39 @@ def _validated_result(
     year = _clean_text(result.get("year"), maximum=4) or parsed_year
     tmdb_id = result.get("tmdbId")
     result_type = str(result.get("resultType") or "").casefold()
-    requested_years = {
-        *YEAR_RE.findall(query),
-        *YEAR_RE.findall(str(item.get("year") or "")),
-    }
+    requested_year = parsed_year or _clean_text(item.get("year"), maximum=4)
+    requested_years = {requested_year} if requested_year else set()
+    parsed_season = result.get("parsedSeason")
+    season_years = result.get("seasonYears")
+    season_year = ""
+    if parsed_season is not None and isinstance(season_years, dict):
+        season_year = _clean_text(
+            season_years.get(str(parsed_season)),
+            maximum=4,
+        )
+    year_compatible = not requested_years or year in requested_years
+    if kind == "tv" and season_year and season_year in requested_years:
+        # A season release year (e.g. S04=2026) legitimately differs from
+        # the parent series premiere year (e.g. 2018).  Validate against the
+        # exact season when MoviePilot provides it instead of rejecting a
+        # correct identity as a stale-year conflict.
+        year_compatible = True
+    provider_title = (
+        isinstance(tmdb_id, int)
+        and tmdb_id > 0
+        and has_latin(title)
+        and bool(_identity_hint(item))
+    )
     if (
         not title
-        or not has_cjk(title)
+        or (not has_cjk(title) and not provider_title)
         or not english_title
         or not has_latin(english_title)
         or not isinstance(tmdb_id, int)
         or tmdb_id <= 0
         or (kind == "tv" and "tv" not in result_type)
         or (kind == "movie" and "movie" not in result_type)
-        or (
-            not _identity_hint(item)
-            and requested_years
-            and year not in requested_years
-        )
+        or (not _identity_hint(item) and not year_compatible)
     ):
         return base
     return {
@@ -944,6 +1098,7 @@ def _validated_result(
         "year": year,
         "identity": f"{kind}:tmdb:{tmdb_id}",
         "tmdbId": tmdb_id,
+        "providerVerified": provider_title,
     }
 
 
@@ -1566,6 +1721,9 @@ def _merge_group(
             "title": title,
             "englishTitle": english_title,
             "library": bool(library_items),
+            "metadataResolved": all(
+                bool(item.get("_metadataResolved")) for item in items
+            ),
         }
     ) and not identity_conflict and not hash_name_redacted
     protected = (

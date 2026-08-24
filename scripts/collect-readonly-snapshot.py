@@ -55,6 +55,7 @@ import sqlite3
 import time
 from urllib.parse import quote, urlparse
 from urllib.request import ProxyHandler, Request, build_opener, urlopen
+from xml.etree import ElementTree
 
 _CONFIG_DEFAULT = {
     "jellyfin_db": "/var/lib/jellyfin/data/jellyfin.db",
@@ -251,6 +252,59 @@ def identity(item_id, providers, media_type, path):
         if values.get(provider):
             return f"{media_type}:{provider.lower()}:{values[provider]}"
     return f"{media_type}:path:{str(path or item_id).casefold()}"
+
+
+def nfo_provider_ids(path_value):
+    """Read provider IDs from an adjacent Jellyfin NFO when its DB row is stale."""
+    path = Path(str(path_value or ""))
+    if not path:
+        return {}
+    candidates = []
+    if path.is_file():
+        candidates.append(path.with_suffix(".nfo"))
+        directory = path.parent
+    else:
+        directory = path
+    if directory.is_dir():
+        candidates.extend(
+            [
+                directory / f"{directory.name}.nfo",
+                directory / "movie.nfo",
+                directory / "tvshow.nfo",
+            ]
+        )
+        try:
+            nfos = sorted(directory.glob("*.nfo"))
+        except OSError:
+            nfos = []
+        if len(nfos) == 1:
+            candidates.append(nfos[0])
+    seen = set()
+    for candidate in candidates:
+        candidate_key = str(candidate)
+        if candidate_key in seen or not candidate.is_file() or candidate.is_symlink():
+            continue
+        seen.add(candidate_key)
+        try:
+            root = ElementTree.parse(candidate).getroot()
+        except (OSError, ElementTree.ParseError):
+            continue
+        result = {}
+        for element in root.iter():
+            tag = str(element.tag).rsplit("}", 1)[-1].casefold()
+            value = str(element.text or "").strip()
+            if not value:
+                continue
+            if tag == "uniqueid":
+                provider = str(element.attrib.get("type") or "").casefold()
+                provider = {"tmdb": "Tmdb", "tvdb": "Tvdb", "imdb": "Imdb"}.get(provider)
+            else:
+                provider = {"tmdbid": "Tmdb", "tvdbid": "Tvdb", "imdbid": "Imdb"}.get(tag)
+            if provider and provider not in result:
+                result[provider] = value
+        if result:
+            return result
+    return {}
 
 
 def video_files(path_value):
@@ -1774,6 +1828,14 @@ top_items = list(
         (MOVIE, SERIES),
     )
 )
+# Jellyfin's provider table can lag behind an already-written NFO (notably
+# after a library refresh or a MoviePilot re-sync).  Fill only missing IDs
+# from the adjacent NFO so a known IMDb/TMDB identity is not downgraded to a
+# path identity; database values always remain authoritative when present.
+for row in top_items:
+    item_id = str(row["Id"])
+    for provider, value in nfo_provider_ids(row["Path"]).items():
+        providers[item_id].setdefault(provider, value)
 groups = {}
 series_to_group = {}
 for row in top_items:
