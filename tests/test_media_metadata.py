@@ -681,6 +681,46 @@ class MediaMetadataTests(unittest.TestCase):
             with self.subTest(query=query):
                 self.assertEqual(_parse_release_label(query), expected)
 
+    def test_release_parser_keeps_chinese_only_title_and_release_year(self):
+        self.assertEqual(
+            _parse_release_label("隐形人 2020 1080p WEB-DL 中文字幕"),
+            ("隐形人", "", "2020", ""),
+        )
+        self.assertEqual(
+            _metadata_resolution_query(
+                {
+                    "type": "电影",
+                    "library": False,
+                    "englishTitle": "摩天楼 2012 1080p x265",
+                }
+            ),
+            "摩天楼 2012",
+        )
+
+    def test_release_parser_treats_later_year_as_release_year(self):
+        self.assertEqual(
+            _parse_release_label("Hijack 1971 2024 1080p WEB-DL"),
+            ("", "Hijack 1971", "2024", ""),
+        )
+        self.assertEqual(
+            _metadata_resolution_query(
+                {
+                    "type": "电影",
+                    "library": False,
+                    "englishTitle": "Hijack 1971 2024 1080p WEB-DL",
+                }
+            ),
+            "Hijack 1971 2024",
+        )
+
+    def test_release_parser_keeps_series_year_ranges_intact(self):
+        self.assertEqual(
+            _parse_release_label(
+                "（暗黑）Dark 2017-2020 S01-S03 2160p WEB-DL"
+            ),
+            ("暗黑", "Dark", "2017", "S01"),
+        )
+
     def test_release_resolution_query_ignores_quality_and_release_group(self):
         variants = [
             "Hacksaw.Ridge.2016.UHD.BluRay.2160p.10bit.HDR-beAst",
@@ -1484,6 +1524,65 @@ class MediaMetadataTests(unittest.TestCase):
         )
 
         self.assertEqual(bad["status"], "unresolved")
+
+    def test_authoritative_provider_identity_allows_english_only_title(self):
+        item = {
+            "title": "The Moon",
+            "englishTitle": "The Moon",
+            "year": "2024",
+            "type": "电影",
+            "library": True,
+            "_private": {"identity": "movie:tmdb:1366507"},
+        }
+        got = _validated_result(
+            item,
+            {
+                "query": "The Moon",
+                "kind": "movie",
+                "status": "recognized",
+                "parsedEnglish": "The Moon",
+                "parsedYear": "2024",
+                "title": "The Moon",
+                "englishTitle": "The Moon",
+                "year": "2024",
+                "resultType": "MediaType.MOVIE",
+                "tmdbId": 1366507,
+            },
+            checked_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+        self.assertEqual(got["status"], "resolved")
+        self.assertTrue(got["providerVerified"])
+
+    def test_tv_season_year_can_differ_from_series_premiere_year(self):
+        item = {
+            "title": "中文名待识别",
+            "englishTitle": "That Time I Got Reincarnated as a Slime S04 2026",
+            "type": "电视剧",
+            "library": False,
+        }
+        got = _validated_result(
+            item,
+            {
+                "query": item["englishTitle"],
+                "kind": "tv",
+                "status": "recognized",
+                "parsedChinese": "",
+                "parsedEnglish": "That Time I Got Reincarnated as a Slime",
+                "parsedYear": "2026",
+                "parsedSeason": 4,
+                "title": "关于我转生变成史莱姆这档事",
+                "englishTitle": "That Time I Got Reincarnated as a Slime",
+                "year": "2018",
+                "resultType": "MediaType.TV",
+                "tmdbId": 82684,
+                "seasonYears": {"4": "2026"},
+            },
+            checked_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+        self.assertEqual(got["status"], "resolved")
+        self.assertEqual(got["identity"], "tv:tmdb:82684")
 
     def test_exact_tmdb_identity_does_not_trust_a_stale_library_year(self):
         item = {

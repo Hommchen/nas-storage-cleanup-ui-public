@@ -110,6 +110,25 @@ class CollectorHelperTests(unittest.TestCase):
 
         compile(source, "<remote-collector>", "exec")
 
+    def test_adjacent_nfo_provider_ids_are_recovered(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / "The Moon (2023)"
+            directory.mkdir()
+            (directory / "The Moon (2023).nfo").write_text(
+                """<?xml version="1.0"?>
+<movie>
+  <tmdbid>1366507</tmdbid>
+  <uniqueid type="imdb" default="true">tt33576313</uniqueid>
+</movie>
+""",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                helpers["nfo_provider_ids"](directory),
+                {"Tmdb": "1366507", "Imdb": "tt33576313"},
+            )
+
     def test_v1_torrent_infohash_uses_raw_info_dictionary(self):
         info = b"d4:name7:Fixture6:lengthi14ee"
         torrent = b"d4:info" + info + b"e"
