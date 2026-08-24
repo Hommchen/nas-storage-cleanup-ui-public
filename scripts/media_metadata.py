@@ -1161,11 +1161,14 @@ def resolve_media_names(
         if hint:
             candidate["tmdbId"] = int(hint.rsplit(":", 1)[1])
         candidates.append(candidate)
-        if len(candidates) >= max(0, limit):
-            break
     if not candidates:
         return sanitized, True
-    source = _resolver_source(candidates, max(1, min(workers, 12)))
+    # ``limit`` is a provider batch size, not a cap on the number of names
+    # resolved during one refresh.  A hard global cap silently left the tail
+    # of a busy qB snapshot in "unresolved" forever (for example S04 of a
+    # series could sit behind the first 128 release names).  Keep requests
+    # bounded, but drain all candidates in deterministic batches.
+    batch_size = max(1, min(limit, 256))
     command = [
         "sudo",
         "-n",
@@ -1184,43 +1187,47 @@ def resolve_media_names(
             host,
             *command,
         ]
-    try:
-        completed = subprocess.run(
-            command,
-            input=source,
-            text=True,
-            capture_output=True,
-            check=True,
-            timeout=timeout,
-        )
-        result_line = next(
-            line
-            for line in reversed(completed.stdout.splitlines())
-            if line.startswith(RESULT_SENTINEL)
-        )
-        raw_results = json.loads(result_line[len(RESULT_SENTINEL) :])
-        if not isinstance(raw_results, list):
-            raise ValueError("metadata resolver returned a non-list")
-    except (
-        OSError,
-        StopIteration,
-        ValueError,
-        json.JSONDecodeError,
-        subprocess.SubprocessError,
-    ):
-        return sanitized, False
     checked_at = now.isoformat(timespec="seconds")
-    result_by_key = {
-        str(item.get("key") or ""): item
-        for item in raw_results
-        if isinstance(item, dict)
-    }
-    for key, source_item in source_by_key.items():
-        entries[key] = _validated_result(
-            source_item,
-            result_by_key.get(key, {}),
-            checked_at=checked_at,
-        )
+    for start in range(0, len(candidates), batch_size):
+        batch = candidates[start : start + batch_size]
+        source = _resolver_source(batch, max(1, min(workers, 12)))
+        try:
+            completed = subprocess.run(
+                command,
+                input=source,
+                text=True,
+                capture_output=True,
+                check=True,
+                timeout=timeout,
+            )
+            result_line = next(
+                line
+                for line in reversed(completed.stdout.splitlines())
+                if line.startswith(RESULT_SENTINEL)
+            )
+            raw_results = json.loads(result_line[len(RESULT_SENTINEL) :])
+            if not isinstance(raw_results, list):
+                raise ValueError("metadata resolver returned a non-list")
+        except (
+            OSError,
+            StopIteration,
+            ValueError,
+            json.JSONDecodeError,
+            subprocess.SubprocessError,
+        ):
+            return sanitized, False
+        result_by_key = {
+            str(item.get("key") or ""): item
+            for item in raw_results
+            if isinstance(item, dict)
+        }
+        for candidate in batch:
+            key = str(candidate.get("key") or "")
+            entries[key] = _validated_result(
+                source_by_key[key],
+                result_by_key.get(key, {}),
+                checked_at=checked_at,
+            )
     tmdb_aliases: dict[
         tuple[str, str, str],
         set[str],
