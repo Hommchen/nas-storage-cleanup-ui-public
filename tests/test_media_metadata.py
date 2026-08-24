@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from scripts.media_metadata import (
     _metadata_resolution_query,
@@ -20,6 +22,7 @@ from scripts.media_metadata import (
     make_hr_metadata_resources,
     metadata_cache_key,
     prune_metadata_cache,
+    resolve_media_names,
     sanitize_metadata_cache,
     validate_metadata_overrides,
 )
@@ -126,6 +129,71 @@ def raw_resource(
 
 
 class MediaMetadataTests(unittest.TestCase):
+    def test_metadata_refresh_drains_candidates_in_bounded_batches(self):
+        resources = []
+        results = []
+        for index in range(3):
+            resource = raw_resource(
+                resource_id=f"res_batch_{index}",
+                title="中文名待识别",
+                english=f"Batch Movie {index} 2026 1080p WEB-DL",
+                edition="电影 · 未入库",
+                media_type="电影",
+                library=False,
+                private=private_record(
+                    identity=f"qb:batch-{index}",
+                    task_hash=chr(97 + index) * 40,
+                    path=f"/allowed/batch-{index}.mkv",
+                    inode=300 + index,
+                ),
+            )
+            resources.append(resource)
+            results.append(
+                {
+                    "key": metadata_cache_key(resource),
+                    "query": resource["englishTitle"],
+                    "kind": "movie",
+                    "status": "recognized",
+                    "parsedChinese": "",
+                    "parsedEnglish": f"Batch Movie {index}",
+                    "parsedYear": "2026",
+                    "title": f"批量电影{index}",
+                    "englishTitle": f"Batch Movie {index}",
+                    "year": "2026",
+                    "resultType": "MediaType.MOVIE",
+                    "tmdbId": 9000 + index,
+                }
+            )
+
+        def fake_run(*_args, **_kwargs):
+            return SimpleNamespace(
+                stdout="__PINAS_MEDIA_NAMES__" + json.dumps(
+                    results,
+                    ensure_ascii=False,
+                )
+            )
+
+        with patch(
+            "scripts.media_metadata.subprocess.run",
+            side_effect=fake_run,
+        ) as run:
+            cache, available = resolve_media_names(
+                host=None,
+                resources=resources,
+                cache={"version": 1, "entries": {}},
+                limit=2,
+            )
+
+        self.assertTrue(available)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(len(cache["entries"]), 3)
+        self.assertTrue(
+            all(
+                entry["status"] == "resolved"
+                for entry in cache["entries"].values()
+            )
+        )
+
     def test_task_display_status_distinguishes_download_from_seeding(self):
         self.assertEqual(
             _task_display_status({"state": "stalledDL", "progress": 0.67}),
