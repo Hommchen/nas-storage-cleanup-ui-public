@@ -116,6 +116,20 @@ class SnapshotIntegrityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_snapshot_pair(public, private)
 
+    def test_provider_verified_english_only_name_is_valid(self):
+        public, private = pair()
+        public["resources"][0].update(
+            {
+                "title": "The Moon",
+                "englishTitle": "The Moon",
+                "library": True,
+                "metadataProviderVerified": True,
+            }
+        )
+        private["resources"]["res_a"]["metadataProviderVerified"] = True
+
+        validate_snapshot_pair(public, private)
+
     def test_public_snapshot_rejects_paths_hashes_and_private_keys(self):
         for leak in (
             {"path": "/mnt/sdc/private.mkv"},

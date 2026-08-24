@@ -1726,6 +1726,17 @@ def _merge_group(
             ),
         }
     ) and not identity_conflict and not hash_name_redacted
+    metadata_provider_verified = (
+        name_verified
+        and not has_cjk(title)
+        and all(
+            re.fullmatch(
+                r"(?:movie|tv):tmdb:\d+",
+                str((item.get("_private") or {}).get("identity") or ""),
+            )
+            for item in items
+        )
+    )
     protected = (
         any(bool(item.get("protected")) for item in items)
         or not name_verified
@@ -1748,6 +1759,7 @@ def _merge_group(
         lock_reasons.append("安全状态待核")
     lock_reason = "；".join(lock_reasons)
     private["metadataVerified"] = name_verified
+    private["metadataProviderVerified"] = metadata_provider_verified
     seed_task_groups: dict[
         tuple[str, str, str, str],
         dict[str, Any],
@@ -1848,6 +1860,7 @@ def _merge_group(
         "hrPending": hr_pending,
         "brush": brush,
         "metadataVerified": name_verified,
+        "metadataProviderVerified": metadata_provider_verified,
         "protected": protected,
         "lockReason": lock_reason,
         "qbSummary": f"{len(qb_tasks)} 个 qB 任务" if qb_tasks else "无 qB 任务",
