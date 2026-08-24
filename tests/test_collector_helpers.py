@@ -129,6 +129,32 @@ class CollectorHelperTests(unittest.TestCase):
                 {"Tmdb": "1366507", "Imdb": "tt33576313"},
             )
 
+    def test_mergerfs_library_path_uses_physical_backing_inode(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            logical = root / "media" / "TV"
+            physical = root / "real" / "TV"
+            logical.mkdir(parents=True)
+            physical.mkdir(parents=True)
+            video = physical / "Episode.mkv"
+            video.write_bytes(b"fixture")
+            logical_video = logical / video.name
+
+            previous = helpers["MEDIA_PHYSICAL_ALIASES"]
+            helpers["MEDIA_PHYSICAL_ALIASES"] = (
+                (str(logical), str(physical)),
+            )
+            try:
+                logical_inode = helpers["inode_info"](logical_video)[0]
+                physical_inode = (
+                    video.stat().st_dev,
+                    video.stat().st_ino,
+                )
+            finally:
+                helpers["MEDIA_PHYSICAL_ALIASES"] = previous
+
+            self.assertEqual(logical_inode, physical_inode)
+
     def test_v1_torrent_infohash_uses_raw_info_dictionary(self):
         info = b"d4:name7:Fixture6:lengthi14ee"
         torrent = b"d4:info" + info + b"e"
