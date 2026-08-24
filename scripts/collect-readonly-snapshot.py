@@ -307,6 +307,30 @@ def nfo_provider_ids(path_value):
     return {}
 
 
+MEDIA_PHYSICAL_ALIASES = (
+    # Jellyfin/MoviePilot use the mergerfs-facing /mnt/sdc/media paths, while
+    # qB and the hardlink payloads live on their real backing filesystems.
+    # Stat the backing path for identity matching without changing the public
+    # or MoviePilot display paths.
+    ("/mnt/sdc/media/TV", "/mnt/sdd/media/TV"),
+    ("/mnt/sdc/media/Movies", "/mnt/sdc/.media-main/Movies"),
+)
+
+
+def physical_media_path(path_value):
+    path = Path(str(path_value or ""))
+    for logical_root, physical_root in MEDIA_PHYSICAL_ALIASES:
+        logical = Path(logical_root)
+        try:
+            relative = path.relative_to(logical)
+        except ValueError:
+            continue
+        candidate = Path(physical_root) / relative
+        if candidate.exists():
+            return candidate
+    return path
+
+
 def video_files(path_value):
     path = Path(str(path_value or ""))
     if not path.exists():
@@ -442,7 +466,7 @@ def exact_qb_files(row):
 
 def inode_info(path):
     try:
-        stat = path.stat()
+        stat = physical_media_path(path).stat()
     except OSError:
         return None
     return (int(stat.st_dev), int(stat.st_ino)), {
