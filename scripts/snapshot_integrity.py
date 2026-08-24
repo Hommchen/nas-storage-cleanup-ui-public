@@ -42,8 +42,14 @@ def _has_verified_public_name(item: dict[str, Any]) -> bool:
 
     title = str(item.get("title") or "").strip()
     english = str(item.get("englishTitle") or "").strip()
-    if not _has_cjk(title) or "待识别" in title or "待核" in title:
+    if "待识别" in title or "待核" in title:
         return False
+    if not _has_cjk(title):
+        return bool(
+            item.get("metadataProviderVerified") is True
+            and _has_latin(title)
+            and _has_latin(english)
+        )
     if not item.get("library") and (
         title == english or not _has_latin(english)
     ):
@@ -154,6 +160,10 @@ def validate_snapshot_pair(
             is not metadata_verified
         ):
             raise ValueError("private resource identity does not match")
+        if item.get("metadataProviderVerified") is True and (
+            private_item.get("metadataProviderVerified") is not True
+        ):
+            raise ValueError("provider verification does not match")
     if _count(
         public_stats,
         "metadataUnverifiedResources",
