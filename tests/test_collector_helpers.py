@@ -155,6 +155,106 @@ class CollectorHelperTests(unittest.TestCase):
 
             self.assertEqual(logical_inode, physical_inode)
 
+    def test_mergerfs_library_cleanup_uses_backing_paths_for_inode_accounting(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            logical_base = root / "media" / "TV"
+            physical_base = root / "real" / "TV"
+            library_root = physical_base / "Fixture (2024)"
+            season_root = library_root / "Season 01"
+            downloads_root = root / "downloads"
+            season_root.mkdir(parents=True)
+            downloads_root.mkdir()
+            physical_video = season_root / "Fixture - S01E01.mkv"
+            physical_video.write_bytes(b"fixture")
+            download_video = downloads_root / "Fixture.Source.mkv"
+            os.link(physical_video, download_video)
+            logical_video = (
+                logical_base
+                / "Fixture (2024)"
+                / "Season 01"
+                / physical_video.name
+            )
+            inode = (physical_video.stat().st_dev, physical_video.stat().st_ino)
+
+            global_names = (
+                "ALLOWED_ROOTS",
+                "MEDIA_PHYSICAL_ALIASES",
+                "hardlink_scan_verified",
+                "hardlink_paths",
+                "inode_meta",
+                "known_paths",
+            )
+            previous = {name: helpers.get(name) for name in global_names}
+            helpers["ALLOWED_ROOTS"] = (
+                str(logical_base),
+                str(physical_base),
+                str(downloads_root),
+            )
+            helpers["MEDIA_PHYSICAL_ALIASES"] = (
+                (str(logical_base), str(physical_base)),
+            )
+            helpers["hardlink_scan_verified"] = True
+            helpers["hardlink_paths"] = {
+                inode: {str(physical_video), str(download_video)},
+            }
+            helpers["inode_meta"] = {
+                inode: {
+                    "size": physical_video.stat().st_size,
+                    "nlink": physical_video.stat().st_nlink,
+                },
+            }
+            helpers["known_paths"] = {
+                inode: {str(logical_video), str(download_video)},
+            }
+            task = {
+                "_hash": "a" * 40,
+                "_name": "Fixture.Release",
+                "site": "学校站",
+                "scope": "S01",
+                "state": "stalledUP",
+                "progress": 1.0,
+                "_private": True,
+                "_content_path": str(downloads_root),
+                "_save_path": str(downloads_root),
+                "_category": "电视",
+                "_tags": "",
+                "_file_list_verified": True,
+                "_exact_files": [
+                    {
+                        "path": str(download_video),
+                        "name": download_video.name,
+                        "size": physical_video.stat().st_size,
+                        "progress": 1.0,
+                        "relativeSafe": True,
+                    },
+                ],
+                "hr": False,
+                "hr_unknown": False,
+                "self_publish": False,
+            }
+            try:
+                record = helpers["private_record"](
+                    "tv:tmdb:2024",
+                    {inode},
+                    [task],
+                    [logical_base / "Fixture (2024)"],
+                    True,
+                    [],
+                    True,
+                )
+            finally:
+                for name, value in previous.items():
+                    helpers[name] = value
+
+            cleanup_paths = {item["path"] for item in record["cleanupFiles"]}
+            self.assertNotIn(str(logical_video), cleanup_paths)
+            self.assertEqual(
+                cleanup_paths,
+                {str(physical_video), str(download_video)},
+            )
+            self.assertTrue(record["cleanupLinksKnown"])
+
     def test_v1_torrent_infohash_uses_raw_info_dictionary(self):
         info = b"d4:name7:Fixture6:lengthi14ee"
         torrent = b"d4:info" + info + b"e"

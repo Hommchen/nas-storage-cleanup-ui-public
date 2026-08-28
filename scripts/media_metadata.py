@@ -1859,7 +1859,11 @@ def _merge_group(
         "size": round(size_gib, 3),
         "sizeLabel": size_label,
         "reclaimLabel": (
-            ("完整删除可释放 " if private["allLinksKnown"] else "最多可释放 ")
+            (
+                "完整删除可释放 "
+                if private["allLinksKnown"] and private["cleanupLinksKnown"]
+                else "最多可释放 "
+            )
             + size_label
         ),
         "library": library,
