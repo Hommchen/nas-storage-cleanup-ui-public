@@ -601,6 +601,28 @@ class MediaMetadataTests(unittest.TestCase):
         self.assertNotIn("path", first_related[0])
         self.assertNotIn("inode", first_related[0])
 
+    def test_reclaim_label_requires_cleanup_link_accounting(self):
+        private = private_record(
+            identity="movie:cleanup-accounting",
+            task_hash="u" * 40,
+            path="/allowed/cleanup-accounting.mkv",
+            inode=1200,
+        )
+        private["cleanupFiles"][0]["nlink"] = 2
+        resource = raw_resource(
+            resource_id="res_cleanup_accounting",
+            title="清理核算测试",
+            english="Cleanup Accounting Fixture",
+            edition="电影",
+            media_type="电影",
+            private=private,
+            library=True,
+        )
+
+        merged, _ = enrich_and_merge_resources([resource], {})
+
+        self.assertEqual(merged[0]["reclaimLabel"], "最多可释放 1.0 GB")
+
     def test_tv_episode_completeness_stays_unknown_without_expected(self):
         resource = raw_resource(
             resource_id="res_tv_unknown",

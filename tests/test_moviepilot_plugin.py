@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import importlib.util
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -150,9 +151,18 @@ class MoviePilotPluginTests(unittest.TestCase):
             config_source,
         )
 
+        remote_entry = (
+            PLUGIN_ROOT / "dist/v1.0.21/assets/remoteEntry.js"
+        ).read_text(encoding="utf-8")
+        config_asset = re.search(
+            r"__federation_expose_Config-[A-Za-z0-9_-]+\.js",
+            remote_entry,
+        )
+        self.assertIsNotNone(config_asset)
         config_bundle = (
             PLUGIN_ROOT
-            / "dist/v1.0.21/assets/__federation_expose_Config-Brnz1KQ_.js"
+            / "dist/v1.0.21/assets"
+            / config_asset.group(0)
         ).read_text(encoding="utf-8")
         self.assertIn("function apiErrorMessage(err, fallback)", config_bundle)
         self.assertGreaterEqual(config_bundle.count("apiErrorMessage(err,"), 4)

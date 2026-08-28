@@ -1694,7 +1694,11 @@ def private_record(
     cleanup_candidates = {}
     library_scan_verified = True
     for root in sorted({str(path) for path in library_roots if str(path)}):
-        root_path = Path(root)
+        # Jellyfin/MoviePilot expose the mergerfs path, but cleanup operations
+        # must use the real backing path.  Keeping the alias here makes the
+        # later inode accounting see a synthetic mergerfs device alongside
+        # the real hard-link device and causes a false incomplete-link result.
+        root_path = physical_media_path(root)
         if not root_path.exists():
             continue
         try:
