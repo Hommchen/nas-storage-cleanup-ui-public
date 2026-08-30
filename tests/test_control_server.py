@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 import json
@@ -17,6 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 from control_server import ApiError, ControlState, handler_class
+from configuration import default_config
 
 
 ORIGIN = "http://localhost:3000"
@@ -202,7 +204,45 @@ class ControlServerTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertFalse(payload["executionEnabled"])
         self.assertTrue(payload["inventoryCurrent"])
+        self.assertTrue(payload["snapshotFresh"])
         self.assertEqual(payload["runtimeMode"], "ssh-client")
+
+    def test_configured_snapshot_expiry_locks_new_plans(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "public/data").mkdir(parents=True)
+            (root / ".runtime").mkdir(parents=True)
+            config_path = root / "config.json"
+            config_path.write_text("{}", encoding="utf-8")
+            inventory = fixture_inventory()
+            inventory["generatedAt"] = "2026-08-30T10:00:00+00:00"
+            write_inventory_pair(root, inventory)
+            now = datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc)
+
+            with patch(
+                "control_server.probe_config",
+                return_value={"ok": True},
+            ):
+                state = ControlState(
+                    project_root=root,
+                    config_path=config_path,
+                    config={**default_config(), "snapshot_max_age_seconds": 3600},
+                    refresh_runner=lambda: None,
+                    clock=lambda: now,
+                )
+
+            self.assertFalse(state.snapshot_fresh)
+            self.assertEqual(state.freshness_status()["snapshotAgeSeconds"], 7200)
+            with self.assertRaises(ApiError) as context:
+                state.build_public_plan(
+                    {
+                        "snapshotId": SNAPSHOT_ID,
+                        "resourceIds": ["res_fixture"],
+                        "mode": "pause",
+                    }
+                )
+            self.assertEqual(context.exception.code, "inventory_stale")
+            self.assertIn("超过有效期", context.exception.message)
 
     def test_local_nas_runtime_is_reported(self):
         state = ControlState(

@@ -6,6 +6,7 @@
   "moviepilot_db": "/path/to/moviepilot/config/user.db",
   "qb_backup": "/path/to/qBittorrent/BT_backup",
   "execution_backup": "/path/to/storage-cleanup/qb-backups",
+  "snapshot_max_age_seconds": 3600,
   "hit_and_run_enabled": false,
   "hit_and_run_sites": [
     {

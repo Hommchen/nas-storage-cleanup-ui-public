@@ -14,6 +14,7 @@ const form = reactive({
   moviepilot_db: '',
   qb_backup: '',
   execution_backup: '',
+  snapshot_max_age_seconds: 3600,
   hit_and_run_enabled: false,
   hit_and_run_sites: [],
   allowed_roots_text: '',
@@ -109,6 +110,7 @@ function buildConfig() {
     moviepilot_db: form.moviepilot_db,
     qb_backup: form.qb_backup,
     execution_backup: form.execution_backup,
+    snapshot_max_age_seconds: Number(form.snapshot_max_age_seconds),
     hit_and_run_enabled: form.hit_and_run_enabled === true,
     hit_and_run_sites: form.hit_and_run_sites
       .map(item => ({
@@ -306,6 +308,7 @@ onMounted(load)
         <label>媒体库索引（可选）<input v-model="form.media_index_db" autocomplete="off" placeholder="Jellyfin / Emby 数据库路径，可留空" /></label>
         <label>qB 种子备份目录<input v-model="form.qb_backup" autocomplete="off" placeholder="qB 备份目录" /></label>
         <label>清理事务备份目录<input v-model="form.execution_backup" autocomplete="off" placeholder="清理台可写的备份目录" /></label>
+        <label>资源快照有效期（秒）<input v-model.number="form.snapshot_max_age_seconds" type="number" min="300" max="86400" step="60" /></label>
         <label class="wide">允许扫描/清理的根目录（每行一个）<textarea v-model="form.allowed_roots_text" rows="5" placeholder="下载完成目录、电影目录、电视剧目录" /></label>
         <label class="wide">隔离目录映射（每行：卷根目录=隔离目录）<textarea v-model="form.quarantine_roots_text" rows="3" placeholder="例如：/mnt/data=/mnt/data/.storage-cleanup-quarantine" /></label>
       </div>

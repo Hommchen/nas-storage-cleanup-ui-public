@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 import unittest
@@ -11,7 +12,11 @@ import unittest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
-from snapshot_integrity import validate_snapshot_pair
+from snapshot_integrity import (
+    snapshot_age_seconds,
+    snapshot_is_fresh,
+    validate_snapshot_pair,
+)
 
 
 def pair():
@@ -54,6 +59,26 @@ def pair():
 
 
 class SnapshotIntegrityTests(unittest.TestCase):
+    def test_snapshot_age_and_freshness_fail_closed(self):
+        now = datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc)
+        snapshot = {"generatedAt": "2026-08-30T11:30:00+00:00"}
+        self.assertEqual(snapshot_age_seconds(snapshot, now=now), 1800)
+        self.assertTrue(snapshot_is_fresh(snapshot, 1800, now=now))
+        self.assertFalse(snapshot_is_fresh(snapshot, 1799, now=now))
+        self.assertIsNone(
+            snapshot_age_seconds(
+                {"generatedAt": "2026-08-30T12:01:00+00:00"},
+                now=now,
+            )
+        )
+        self.assertFalse(
+            snapshot_is_fresh(
+                {"generatedAt": "not-a-timestamp"},
+                3600,
+                now=now,
+            )
+        )
+
     def test_valid_pair_passes(self):
         validate_snapshot_pair(*pair())
 

@@ -31,6 +31,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "moviepilot_db": "/path/to/moviepilot/config/user.db",
     "qb_backup": "/path/to/qBittorrent/BT_backup",
     "execution_backup": "/path/to/storage-cleanup/qb-backups",
+    # A resource list is a point-in-time safety input. Keep the window short
+    # enough that a plan cannot silently outlive a normal NAS change.
+    "snapshot_max_age_seconds": 3600,
     # Hit and Run is deliberately opt-in.  Keep the known BTSchool entry as
     # a ready-to-review row, but do not query it or let it affect cleanup
     # while the global switch remains false.
@@ -165,6 +168,16 @@ def normalize_config(raw: object) -> dict[str, Any]:
     merged["version"] = CONFIG_VERSION
     for field in PATH_FIELDS:
         merged[field] = _path(merged[field], field)
+    snapshot_max_age = merged.get("snapshot_max_age_seconds", 3600)
+    if (
+        isinstance(snapshot_max_age, bool)
+        or not isinstance(snapshot_max_age, int)
+        or not 300 <= snapshot_max_age <= 86400
+    ):
+        raise ConfigurationError(
+            "snapshot_max_age_seconds 必须是 300 到 86400 之间的整数。"
+        )
+    merged["snapshot_max_age_seconds"] = snapshot_max_age
     hit_and_run_enabled = merged.get("hit_and_run_enabled", False)
     if not isinstance(hit_and_run_enabled, bool):
         raise ConfigurationError("hit_and_run_enabled 必须是布尔值。")

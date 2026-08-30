@@ -12,7 +12,7 @@ UMask=0027
 WorkingDirectory=@PINAS_BASE@/current
 Environment=PYTHONUNBUFFERED=1
 ExecStartPre=+/usr/local/sbin/pinas-storage-readiness
-ExecStart=/usr/bin/python3 scripts/gateway_server.py --host @PINAS_ADDRESS@ --port 3000 --bridge-network 172.17.0.0/16 --bridge-token-file @PINAS_BASE@/shared/runtime/control-token
+ExecStart=/usr/bin/python3 scripts/gateway_server.py --host @PINAS_ADDRESS@ --port 3000 --public-origin http://@PINAS_ADDRESS@:3000 --bridge-network 172.17.0.0/16 --bridge-token-file @PINAS_BASE@/shared/runtime/control-token
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=15

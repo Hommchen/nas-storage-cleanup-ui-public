@@ -218,6 +218,9 @@ class MoviePilotPluginTests(unittest.TestCase):
         self.assertIn('class="filter-panel"', page)
         self.assertIn("同组条件单选；不同组条件按 AND 组合", page)
         self.assertIn("activeFilterChips", page)
+        self.assertIn("risk-overview", page)
+        self.assertIn("snapshotFresh", page)
+        self.assertIn("无保护约束", page)
 
     def test_moviepilot_page_guards_out_of_order_plan_responses(self):
         provider = (PLUGIN_ROOT / "src/provider.js").read_text(encoding="utf-8")

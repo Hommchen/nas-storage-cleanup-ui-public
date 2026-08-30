@@ -28,6 +28,7 @@ class RenderSystemdUnitsTests(unittest.TestCase):
                 encoding="utf-8"
             )
             self.assertIn("--host 192.0.2.1 --port 3000", gateway)
+            self.assertIn("--public-origin http://192.0.2.1:3000", gateway)
 
     def test_unrendered_marker_fails_closed(self):
         with self.assertRaises(ValueError):

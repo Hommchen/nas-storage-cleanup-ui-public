@@ -254,7 +254,7 @@ const filterGroups: {
     options: [
       { id: "all", label: "全部" },
       { id: "hr", label: "H&R 保护中", tone: "warning" },
-      { id: "none", label: "无做种要求" },
+      { id: "none", label: "无保护约束" },
     ],
   },
   {
@@ -279,9 +279,7 @@ function matchesFilter(item: Resource, filter: LegacyFilter) {
   if (filter === "tv-incomplete") return isIncompleteTv(item);
   if (filter === "library") return item.library;
   if (filter === "hr") return item.hr || Boolean(item.hrPending);
-  if (filter === "review") {
-    return !item.protected && item.qbSummary === "无 qB 任务";
-  }
+  if (filter === "review") return item.protected !== true;
   return item.metadataVerified === false;
 }
 
@@ -330,6 +328,27 @@ function formatBytes(size: number) {
   return formatGiB(size / 1024 ** 3);
 }
 
+function formatSnapshotAge(generatedAt: string) {
+  const timestamp = Date.parse(generatedAt);
+  if (!Number.isFinite(timestamp)) return "时间戳无效";
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 0) return "时间戳晚于本机时钟";
+  if (seconds < 60) return "刚刚更新";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前更新`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前更新`;
+  return `${Math.floor(seconds / 86400)} 天前更新`;
+}
+
+function formatSnapshotLimit(seconds: number) {
+  if (seconds >= 86400 && seconds % 86400 === 0) {
+    return `${seconds / 86400} 天`;
+  }
+  if (seconds >= 3600 && seconds % 3600 === 0) {
+    return `${seconds / 3600} 小时`;
+  }
+  return `${Math.max(1, Math.floor(seconds / 60))} 分钟`;
+}
+
 function actionTitle(mode: ActionMode) {
   if (mode === "pause") return "仅停止做种";
   if (mode === "retire") return "退出做种，保留媒体";
@@ -350,6 +369,8 @@ export default function Home() {
   const [sessionToken, setSessionToken] = useState("");
   const [executionEnabled, setExecutionEnabled] = useState(false);
   const [inventoryCurrent, setInventoryCurrent] = useState(true);
+  const [snapshotFresh, setSnapshotFresh] = useState(true);
+  const [snapshotMaxAgeSeconds, setSnapshotMaxAgeSeconds] = useState(3600);
   const [runtimeMode, setRuntimeMode] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [refreshElapsed, setRefreshElapsed] = useState(0);
@@ -432,12 +453,18 @@ export default function Home() {
           sessionToken: string;
           executionEnabled: boolean;
           inventoryCurrent: boolean;
+          snapshotFresh?: boolean;
+          snapshotMaxAgeSeconds?: number;
           runtimeMode?: string;
         }>(`${CONTROL_API}/v1/session`);
         if (cancelled) return;
         setSessionToken(payload.sessionToken);
         setExecutionEnabled(payload.executionEnabled);
         setInventoryCurrent(payload.inventoryCurrent);
+        setSnapshotFresh(payload.snapshotFresh !== false);
+        if (typeof payload.snapshotMaxAgeSeconds === "number") {
+          setSnapshotMaxAgeSeconds(payload.snapshotMaxAgeSeconds);
+        }
         setRuntimeMode(payload.runtimeMode || "");
         setControlStatus("ready");
         try {
@@ -480,7 +507,10 @@ export default function Home() {
         ) {
           return;
         }
-        if (!cancelled) setControlStatus("offline");
+        if (!cancelled) {
+          setControlStatus("offline");
+          setSnapshotFresh(false);
+        }
         try {
           await readPublicFallback();
         } catch (fallbackError) {
@@ -539,6 +569,26 @@ export default function Home() {
     0;
   const unresolvedTransactions =
     snapshot.stats.unresolvedTransactions ?? 0;
+  const riskSummary = useMemo(
+    () => ({
+      total: resources.length,
+      imported: resources.filter((item) => item.library).length,
+      notImported: resources.filter((item) => !item.library).length,
+      protected: resources.filter((item) => item.protected).length,
+      shared: resources.filter(
+        (item) => (item.sharedHardlinkResources?.length ?? 0) > 0,
+      ).length,
+      review:
+        (snapshot.stats.bilingualMissingResources ?? 0) +
+        (snapshot.stats.metadataUnverifiedResources ?? 0),
+      qbTasks: snapshot.stats.qbTasks,
+      unmatchedQbTasks: snapshot.stats.unmatchedQbTasks,
+    }),
+    [resources, snapshot.stats],
+  );
+  const snapshotAgeLabel = snapshotLoaded
+    ? formatSnapshotAge(snapshot.generatedAt)
+    : "尚未读取";
   const filters = useMemo(
     () =>
       filterGroups.map((group) => ({
@@ -569,9 +619,7 @@ export default function Home() {
     return resources
       .filter((item) => {
         const filterMatch = matchesFilterState(item, filterState);
-        const safeMatch =
-          !safeOnly ||
-          (!item.protected && item.qbSummary === "无 qB 任务");
+        const safeMatch = !safeOnly || item.protected !== true;
         const text =
           `${item.title} ${item.englishTitle} ${item.edition} ${item.siteSummary}`.toLowerCase();
         return filterMatch && safeMatch && (!query || text.includes(query));
@@ -615,6 +663,7 @@ export default function Home() {
         }
         acceptSnapshot(payload.snapshot);
         setInventoryCurrent(true);
+        setSnapshotFresh(true);
       } else {
         const response = await fetch(
           `/data/resource-snapshot.json?t=${Date.now()}`,
@@ -624,7 +673,10 @@ export default function Home() {
         acceptSnapshot(await parseJsonResponse<Snapshot>(response));
       }
     } catch (error) {
-      if (controlStatus === "ready") setInventoryCurrent(false);
+      if (controlStatus === "ready") {
+        setInventoryCurrent(false);
+        setSnapshotFresh(false);
+      }
       setSnapshotError(
         error instanceof Error
           ? error.message
@@ -1051,7 +1103,7 @@ export default function Home() {
   const topStatus =
     !snapshotLoaded
       ? "正在读取资源清单"
-      : !inventoryCurrent
+      : !inventoryCurrent || !snapshotFresh
       ? "资源清单待刷新"
       : controlStatus === "offline"
       ? "控制服务未启动"
@@ -1063,7 +1115,7 @@ export default function Home() {
             ? "Pi 只读模式"
             : "只读模式";
 
-  const topStatusTone = snapshotError || !inventoryCurrent
+  const topStatusTone = snapshotError || !inventoryCurrent || !snapshotFresh
     ? "locked"
     : executionEnabled
       ? "enabled"
@@ -1099,7 +1151,7 @@ export default function Home() {
             <strong>{snapshotError || topStatus}</strong>
             <small>
               {snapshotLoaded
-                ? `更新于 ${snapshot.generatedAt.slice(5, 16).replace("T", " ")}`
+                ? `${snapshotAgeLabel} · ${snapshot.generatedAt.slice(5, 16).replace("T", " ")}`
                 : "尚未显示任何资源"}
             </small>
           </p>
@@ -1125,7 +1177,7 @@ export default function Home() {
               onChange={(event) => setSafeOnly(event.target.checked)}
             />
             <span />
-            仅看无做种限制
+            仅看无保护约束
           </label>
           <button
             className="sort-control"
@@ -1152,6 +1204,25 @@ export default function Home() {
             </p>
           )}
         </section>
+
+        {(!inventoryCurrent || !snapshotFresh) && !refreshing && (
+          <button
+            type="button"
+            className="recovery-notice stale-notice"
+            onClick={() => void loadSnapshot()}
+          >
+            <span>!</span>
+            <p>
+              <strong>资源清单待刷新</strong>
+              <small>
+                {snapshotFresh
+                  ? "控制服务尚未确认当前清单；刷新完成前清理动作保持锁定。"
+                  : "资源清单已超过有效期；刷新完成前清理动作保持锁定。"}
+              </small>
+            </p>
+            <b>刷新资源清单</b>
+          </button>
+        )}
 
         {unresolvedTransactions > 0 && (
           <button
@@ -1194,6 +1265,29 @@ export default function Home() {
             <b>查看缺口明细</b>
           </button>
         )}
+
+        <section className="risk-overview" aria-label="清理台风险总览">
+          <article className="risk-overview-card">
+            <span>资源总览</span>
+            <strong>{riskSummary.total}</strong>
+            <small>已入库 {riskSummary.imported} · 未入库 {riskSummary.notImported}</small>
+          </article>
+          <article className="risk-overview-card">
+            <span>qB 任务</span>
+            <strong>{riskSummary.qbTasks}</strong>
+            <small>已关联 {snapshot.stats.matchedQbTasks} · 未关联 {riskSummary.unmatchedQbTasks}</small>
+          </article>
+          <article className="risk-overview-card risk-overview-warn">
+            <span>保护 / 复核</span>
+            <strong>{riskSummary.protected}</strong>
+            <small>共享硬链接 {riskSummary.shared} · 名称/字幕待复核 {riskSummary.review}</small>
+          </article>
+          <article className={`risk-overview-card ${snapshotFresh ? "" : "risk-overview-danger"}`}>
+            <span>快照状态</span>
+            <strong>{snapshotFresh ? "新鲜" : "待刷新"}</strong>
+            <small>{snapshotAgeLabel} · 有效期 {formatSnapshotLimit(snapshotMaxAgeSeconds)}</small>
+          </article>
+        </section>
 
         <section className="resource-filter-panel" aria-label="资源筛选">
           {filters.map((group) => (
@@ -1245,7 +1339,7 @@ export default function Home() {
               )}
             </div>
           </div>
-          <p className="resource-filter-help">同组条件单选；不同组条件按 AND 组合。待处理 / 质量标签可以叠加。</p>
+          <p className="resource-filter-help">同组条件单选；不同组条件按 AND 组合。待处理 / 质量标签可以叠加；无保护约束不等于可直接删除，仍需通过真实预演。</p>
         </section>
 
         <section className="resource-panel">
@@ -1400,17 +1494,26 @@ export default function Home() {
           清空
         </button>
         <div className="cleanup-levels">
-          <button type="button" onClick={() => openPlan("pause")}>
+          <button
+            type="button"
+            disabled={!inventoryCurrent || !snapshotFresh}
+            onClick={() => openPlan("pause")}
+          >
             <strong>停止做种</strong>
             <small>保留 qB 任务和全部文件</small>
           </button>
-          <button type="button" onClick={() => openPlan("retire")}>
+          <button
+            type="button"
+            disabled={!inventoryCurrent || !snapshotFresh}
+            onClick={() => openPlan("retire")}
+          >
             <strong>退出做种</strong>
             <small>移除 qB 任务，媒体仍保留</small>
           </button>
           <button
             type="button"
             className="delete-level"
+            disabled={!inventoryCurrent || !snapshotFresh}
             onClick={() => openPlan("delete")}
           >
             <strong>完整删除</strong>
@@ -1949,9 +2052,7 @@ export default function Home() {
                     className={
                       actionMode === "delete" ? "danger-execute" : ""
                     }
-                    disabled={
-                      executing || planExpired
-                    }
+                    disabled={executing || !inventoryCurrent || !snapshotFresh || planExpired}
                     onClick={() => void executePlan()}
                   >
                     {executing ? "正在定向复核…" : `确认${plan?.modeLabel}`}
@@ -1963,7 +2064,7 @@ export default function Home() {
                 type="button"
                 className="confirm-preview"
                 disabled={
-                  !executionEnabled || !plan?.canExecute || planExpired
+                  !executionEnabled || !inventoryCurrent || !snapshotFresh || !plan?.canExecute || planExpired
                 }
                 onClick={() => setConfirmationOpen(true)}
               >

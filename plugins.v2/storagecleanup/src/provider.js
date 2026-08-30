@@ -26,7 +26,7 @@ export const FILTER_GROUPS = [
     options: [
       { id: 'all', label: '全部' },
       { id: 'hr', label: 'H&R 保护中', tone: 'warning' },
-      { id: 'none', label: '无做种要求' },
+      { id: 'none', label: '无保护约束' },
     ],
   },
   {
@@ -49,7 +49,7 @@ export const FILTERS = [
   { id: 'tv-incomplete', label: '不完整电视剧' },
   { id: 'library', label: '媒体库已入库' },
   { id: 'hr', label: 'H&R 保护中' },
-  { id: 'review', label: '无做种限制' },
+  { id: 'review', label: '无保护约束' },
   { id: 'names', label: '名称待核' },
 ]
 
@@ -143,7 +143,7 @@ export function matchesFilter(item, filter) {
   if (filter === 'tv-incomplete') return isIncompleteTv(item)
   if (filter === 'library') return Boolean(item.library)
   if (filter === 'hr') return Boolean(item.hr || item.hrPending)
-  if (filter === 'review') return !item.protected && item.qbSummary === '无 qB 任务'
+  if (filter === 'review') return item.protected !== true
   return item.metadataVerified === false
 }
 
@@ -196,8 +196,14 @@ export function filterOptionCount(resources, filters, groupId, optionId) {
   return (resources || []).filter(item => matchesFilterState(item, state)).length
 }
 
+export function hasNoProtectionConstraint(item) {
+  return item.protected !== true
+}
+
+// Backwards-compatible export for older callers. This only means that the
+// resource is not protected; the server still decides whether it can execute.
 export function isDirectlyCleanable(item) {
-  return !item.protected && item.qbSummary === '无 qB 任务'
+  return hasNoProtectionConstraint(item)
 }
 
 export function filterResources(resources, { filter, filters, search, safeOnly, descending }) {
@@ -207,7 +213,7 @@ export function filterResources(resources, { filter, filters, search, safeOnly, 
     .filter(item => {
       const text = `${item.title || ''} ${item.englishTitle || ''} ${item.edition || ''} ${item.siteSummary || ''}`.toLowerCase()
       return matchesFilterState(item, state) &&
-        (!safeOnly || isDirectlyCleanable(item)) &&
+        (!safeOnly || hasNoProtectionConstraint(item)) &&
         (!query || text.includes(query))
     })
     .sort((left, right) => {
