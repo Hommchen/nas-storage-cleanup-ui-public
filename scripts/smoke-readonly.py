@@ -113,6 +113,10 @@ def run(
         health.get("inventoryCurrent") is True,
         "running inventory is not current",
     )
+    require(
+        health.get("snapshotFresh") is True,
+        "running snapshot is outside its configured freshness window",
+    )
     require(headers.get("Cache-Control") == "no-store", "health is cacheable")
 
     status, denied, _ = request_json(base_url, "/v1/session")
@@ -147,6 +151,7 @@ def run(
         "session execution mode does not match smoke-test expectation",
     )
     require(session.get("inventoryCurrent") is True, "session inventory is stale")
+    require(session.get("snapshotFresh") is True, "session snapshot is stale")
 
     token_path = PROJECT_ROOT / ".runtime/control-token"
     require_private_file(token_path)

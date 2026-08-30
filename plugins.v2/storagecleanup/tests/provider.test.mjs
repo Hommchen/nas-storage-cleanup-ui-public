@@ -18,6 +18,7 @@ import {
 
 const resources = [
   { id: 'safe', title: '回到未来', englishTitle: 'Back to the Future', size: 78.1, protected: false, qbSummary: '无 qB 任务', library: true },
+  { id: 'public-qb', title: '公开任务', englishTitle: 'Public Task', size: 65.2, protected: false, qbSummary: '1 个 qB 任务', library: true },
   { id: 'hr', title: '择天记', englishTitle: 'Fighter of the Destiny', size: 58.7, protected: true, hr: true, qbSummary: '1 个 qB 任务' },
 ]
 
@@ -31,9 +32,14 @@ function deferred() {
   return { promise, resolve, reject }
 }
 
-test('review filter means no seeding task or protection restriction', () => {
+test('review filter means no protection restriction, including public qB tasks', () => {
   assert.equal(matchesFilter(resources[0], 'review'), true)
-  assert.equal(matchesFilter(resources[1], 'review'), false)
+  assert.equal(matchesFilter(resources[1], 'review'), true)
+  assert.equal(matchesFilter(resources[2], 'review'), false)
+  assert.deepEqual(
+    filterResources(resources, { filter: 'all', search: '', safeOnly: true, descending: true }).map(item => item.id),
+    ['safe', 'public-qb'],
+  )
 })
 
 test('generic filter list does not expose brush-flow tasks', () => {
@@ -48,7 +54,7 @@ test('resource filtering supports bilingual search and size order', () => {
   )
   assert.deepEqual(
     filterResources(resources, { filter: 'all', search: '', safeOnly: false, descending: true }).map(item => item.id),
-    ['safe', 'hr'],
+    ['safe', 'public-qb', 'hr'],
   )
 })
 

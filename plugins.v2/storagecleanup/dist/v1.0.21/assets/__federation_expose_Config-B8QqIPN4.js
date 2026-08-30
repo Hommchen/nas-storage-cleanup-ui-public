@@ -100,6 +100,7 @@ const form = reactive({
   moviepilot_db: '',
   qb_backup: '',
   execution_backup: '',
+  snapshot_max_age_seconds: 3600,
   hit_and_run_enabled: false,
   hit_and_run_sites: [],
   allowed_roots_text: '',
@@ -195,6 +196,7 @@ function buildConfig() {
     moviepilot_db: form.moviepilot_db,
     qb_backup: form.qb_backup,
     execution_backup: form.execution_backup,
+    snapshot_max_age_seconds: Number(form.snapshot_max_age_seconds),
     hit_and_run_enabled: form.hit_and_run_enabled === true,
     hit_and_run_sites: form.hit_and_run_sites
       .map(item => ({
@@ -304,7 +306,7 @@ onMounted(load);
 
 return (_ctx, _cache) => {
   return (_openBlock(), _createElementBlock("section", _hoisted_1, [
-    _cache[26] || (_cache[26] = _createElementVNode("header", null, [
+    _cache[28] || (_cache[28] = _createElementVNode("header", null, [
       _createElementVNode("h2", null, "存储清理设置"),
       _createElementVNode("p", null, "一般无需填写，先点“自动识别”；识别失败再用手动配置。")
     ], -1)),
@@ -312,7 +314,7 @@ return (_ctx, _cache) => {
       ? (_openBlock(), _createElementBlock("div", _hoisted_2, "正在读取配置…"))
       : (_openBlock(), _createElementBlock("section", _hoisted_3, [
           _createElementVNode("div", _hoisted_4, [
-            _cache[11] || (_cache[11] = _createElementVNode("div", null, [
+            _cache[12] || (_cache[12] = _createElementVNode("div", null, [
               _createElementVNode("strong", null, "自动识别"),
               _createElementVNode("span", null, "读取 MoviePilot、qB 和媒体目录；媒体库索引可留空。候选不唯一时不会自动猜。")
             ], -1)),
@@ -373,7 +375,7 @@ return (_ctx, _cache) => {
     (!loading.value)
       ? (_openBlock(), _createElementBlock("section", _hoisted_13, [
           _createElementVNode("div", _hoisted_14, [
-            _cache[12] || (_cache[12] = _createElementVNode("div", null, [
+            _cache[13] || (_cache[13] = _createElementVNode("div", null, [
               _createElementVNode("strong", null, "Hit and Run（H&R）"),
               _createElementVNode("p", null, "默认关闭。开启后，后台会随资源快照刷新，按每个站点配置的入口路径查询；Cookie 和 UA 继续使用 MoviePilot 登录态。")
             ], -1)),
@@ -397,7 +399,7 @@ return (_ctx, _cache) => {
                 class: "hr-row"
               }, [
                 _createElementVNode("label", null, [
-                  _cache[13] || (_cache[13] = _createTextVNode(" 站点 ", -1)),
+                  _cache[14] || (_cache[14] = _createTextVNode(" 站点 ", -1)),
                   _withDirectives(_createElementVNode("select", {
                     "onUpdate:modelValue": $event => ((item.site) = $event)
                   }, [
@@ -412,7 +414,7 @@ return (_ctx, _cache) => {
                   ])
                 ]),
                 _createElementVNode("label", null, [
-                  _cache[14] || (_cache[14] = _createTextVNode(" H&R 列表入口路径 ", -1)),
+                  _cache[15] || (_cache[15] = _createTextVNode(" H&R 列表入口路径 ", -1)),
                   _withDirectives(_createElementVNode("input", {
                     "onUpdate:modelValue": $event => ((item.path) = $event),
                     autocomplete: "off",
@@ -421,7 +423,7 @@ return (_ctx, _cache) => {
                     [_vModelText, item.path]
                   ])
                 ]),
-                _cache[15] || (_cache[15] = _createElementVNode("span", { class: "parser-hint" }, "解析器：NexusPHP 标准", -1)),
+                _cache[16] || (_cache[16] = _createElementVNode("span", { class: "parser-hint" }, "解析器：NexusPHP 标准", -1)),
                 _createElementVNode("button", {
                   class: "remove-hr",
                   type: "button",
@@ -448,13 +450,13 @@ return (_ctx, _cache) => {
           key: 3,
           class: "advanced-settings",
           open: advancedOpen.value,
-          onToggle: _cache[10] || (_cache[10] = $event => (advancedOpen.value = $event.target.open))
+          onToggle: _cache[11] || (_cache[11] = $event => (advancedOpen.value = $event.target.open))
         }, [
-          _cache[23] || (_cache[23] = _createElementVNode("summary", null, "手动配置（自动识别失败时使用）", -1)),
-          _cache[24] || (_cache[24] = _createElementVNode("p", null, "从 NAS 文件管理器复制路径；必须是清理台服务能访问到的路径。媒体库索引可以留空。", -1)),
+          _cache[25] || (_cache[25] = _createElementVNode("summary", null, "手动配置（自动识别失败时使用）", -1)),
+          _cache[26] || (_cache[26] = _createElementVNode("p", null, "从 NAS 文件管理器复制路径；必须是清理台服务能访问到的路径。媒体库索引可以留空。", -1)),
           _createElementVNode("div", _hoisted_26, [
             _createElementVNode("label", null, [
-              _cache[16] || (_cache[16] = _createTextVNode("qBittorrent 地址", -1)),
+              _cache[17] || (_cache[17] = _createTextVNode("qBittorrent 地址", -1)),
               _withDirectives(_createElementVNode("input", {
                 "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((form.qb_url) = $event)),
                 autocomplete: "off",
@@ -464,7 +466,7 @@ return (_ctx, _cache) => {
               ])
             ]),
             _createElementVNode("label", null, [
-              _cache[17] || (_cache[17] = _createTextVNode("MoviePilot 数据库", -1)),
+              _cache[18] || (_cache[18] = _createTextVNode("MoviePilot 数据库", -1)),
               _withDirectives(_createElementVNode("input", {
                 "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((form.moviepilot_db) = $event)),
                 autocomplete: "off",
@@ -474,7 +476,7 @@ return (_ctx, _cache) => {
               ])
             ]),
             _createElementVNode("label", null, [
-              _cache[18] || (_cache[18] = _createTextVNode("媒体库索引（可选）", -1)),
+              _cache[19] || (_cache[19] = _createTextVNode("媒体库索引（可选）", -1)),
               _withDirectives(_createElementVNode("input", {
                 "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((form.media_index_db) = $event)),
                 autocomplete: "off",
@@ -484,7 +486,7 @@ return (_ctx, _cache) => {
               ])
             ]),
             _createElementVNode("label", null, [
-              _cache[19] || (_cache[19] = _createTextVNode("qB 种子备份目录", -1)),
+              _cache[20] || (_cache[20] = _createTextVNode("qB 种子备份目录", -1)),
               _withDirectives(_createElementVNode("input", {
                 "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((form.qb_backup) = $event)),
                 autocomplete: "off",
@@ -494,7 +496,7 @@ return (_ctx, _cache) => {
               ])
             ]),
             _createElementVNode("label", null, [
-              _cache[20] || (_cache[20] = _createTextVNode("清理事务备份目录", -1)),
+              _cache[21] || (_cache[21] = _createTextVNode("清理事务备份目录", -1)),
               _withDirectives(_createElementVNode("input", {
                 "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((form.execution_backup) = $event)),
                 autocomplete: "off",
@@ -503,10 +505,27 @@ return (_ctx, _cache) => {
                 [_vModelText, form.execution_backup]
               ])
             ]),
+            _createElementVNode("label", null, [
+              _cache[22] || (_cache[22] = _createTextVNode("资源快照有效期（秒）", -1)),
+              _withDirectives(_createElementVNode("input", {
+                "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((form.snapshot_max_age_seconds) = $event)),
+                type: "number",
+                min: "300",
+                max: "86400",
+                step: "60"
+              }, null, 512), [
+                [
+                  _vModelText,
+                  form.snapshot_max_age_seconds,
+                  void 0,
+                  { number: true }
+                ]
+              ])
+            ]),
             _createElementVNode("label", _hoisted_27, [
-              _cache[21] || (_cache[21] = _createTextVNode("允许扫描/清理的根目录（每行一个）", -1)),
+              _cache[23] || (_cache[23] = _createTextVNode("允许扫描/清理的根目录（每行一个）", -1)),
               _withDirectives(_createElementVNode("textarea", {
-                "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((form.allowed_roots_text) = $event)),
+                "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((form.allowed_roots_text) = $event)),
                 rows: "5",
                 placeholder: "下载完成目录、电影目录、电视剧目录"
               }, null, 512), [
@@ -514,9 +533,9 @@ return (_ctx, _cache) => {
               ])
             ]),
             _createElementVNode("label", _hoisted_28, [
-              _cache[22] || (_cache[22] = _createTextVNode("隔离目录映射（每行：卷根目录=隔离目录）", -1)),
+              _cache[24] || (_cache[24] = _createTextVNode("隔离目录映射（每行：卷根目录=隔离目录）", -1)),
               _withDirectives(_createElementVNode("textarea", {
-                "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((form.quarantine_roots_text) = $event)),
+                "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((form.quarantine_roots_text) = $event)),
                 rows: "3",
                 placeholder: "例如：/mnt/data=/mnt/data/.storage-cleanup-quarantine"
               }, null, 512), [
@@ -548,7 +567,7 @@ return (_ctx, _cache) => {
             : _createCommentVNode("", true),
           (probe.value.missing?.length || probe.value.problems?.length)
             ? (_openBlock(), _createElementBlock("details", _hoisted_35, [
-                _cache[25] || (_cache[25] = _createElementVNode("summary", null, "查看管理员诊断", -1)),
+                _cache[27] || (_cache[27] = _createElementVNode("summary", null, "查看管理员诊断", -1)),
                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(probe.value.missing || [], (item) => {
                   return (_openBlock(), _createElementBlock("span", {
                     key: `missing-${item}`
@@ -566,6 +585,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-cd23536d"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-92d23d72"]]);
 
 export { _export_sfc as _, Config as default };

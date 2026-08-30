@@ -50,7 +50,11 @@ from execution_engine import (
     SSHRecoveryRunner,
     validate_confirmation,
 )
-from snapshot_integrity import validate_snapshot_pair
+from snapshot_integrity import (
+    snapshot_age_seconds,
+    snapshot_is_fresh,
+    validate_snapshot_pair,
+)
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -90,6 +94,7 @@ class ControlState:
         | None = None,
         recovery_runner: Callable[..., dict[str, Any]] | None = None,
         local_nas: bool = False,
+        clock: Callable[[], datetime] | None = None,
     ):
         self.project_root = project_root.resolve()
         self.config_path = (
@@ -121,8 +126,14 @@ class ControlState:
         self.execution_runner = execution_runner
         self.recovery_runner = recovery_runner or SSHRecoveryRunner()
         self.execution_enabled = execution_runner is not None
+        self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.snapshot_max_age_seconds = int(
+            self.config.get("snapshot_max_age_seconds", 3600)
+        )
+        self.snapshot_fresh = False
         self._write_session_token()
         self.inventory_current = self._inventory_pair_is_current()
+        self.snapshot_fresh = self._snapshot_is_fresh()
 
     def _write_session_token(self) -> None:
         self.session_token_path.parent.mkdir(parents=True, exist_ok=True)
@@ -173,6 +184,35 @@ class ControlState:
 
     def inventory(self) -> dict[str, Any]:
         return self._read_json(self.private_inventory_path)
+
+    def _snapshot_age_seconds(self) -> int | None:
+        try:
+            return snapshot_age_seconds(self.snapshot(), now=self.clock())
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            return None
+
+    def _snapshot_is_fresh(self) -> bool:
+        # A missing host config is the development/read-only fixture mode.
+        # Production always supplies a config file and therefore gets the
+        # timestamp gate below.
+        if not self.config_path.is_file():
+            return True
+        try:
+            return snapshot_is_fresh(
+                self.snapshot(),
+                self.snapshot_max_age_seconds,
+                now=self.clock(),
+            )
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            return False
+
+    def freshness_status(self) -> dict[str, Any]:
+        self.snapshot_fresh = self._snapshot_is_fresh()
+        return {
+            "snapshotFresh": self.snapshot_fresh,
+            "snapshotAgeSeconds": self._snapshot_age_seconds(),
+            "snapshotMaxAgeSeconds": self.snapshot_max_age_seconds,
+        }
 
     def config_status(self) -> dict[str, Any]:
         return {
@@ -242,7 +282,11 @@ class ControlState:
             )
         write_config(self.config_path, next_config)
         self.config = next_config
+        self.snapshot_max_age_seconds = int(
+            next_config.get("snapshot_max_age_seconds", 3600)
+        )
         self.inventory_current = False
+        self.snapshot_fresh = False
         self.plan_cache.clear()
         for runner in (self.execution_runner, self.recovery_runner):
             if runner is not None and hasattr(runner, "config"):
@@ -281,10 +325,19 @@ class ControlState:
     def _accept_refreshed_inventory(self) -> dict[str, Any]:
         if not self._inventory_pair_is_current():
             self.inventory_current = False
+            self.snapshot_fresh = False
             raise ApiError(
                 502,
                 "refresh_integrity_failed",
                 "刷新结果未通过公开清单与私有库存一致性校验。",
+            )
+        self.snapshot_fresh = self._snapshot_is_fresh()
+        if not self.snapshot_fresh:
+            self.inventory_current = False
+            raise ApiError(
+                502,
+                "refresh_freshness_failed",
+                "刷新结果时间戳无法证明足够新，清理操作继续保持锁定。",
             )
         self.inventory_current = True
         return self.snapshot()
@@ -312,11 +365,17 @@ class ControlState:
                 self.plan_cache.pop(plan_id, None)
 
     def build_public_plan(self, request: dict[str, Any]) -> dict[str, Any]:
-        if not self.inventory_current:
+        self.snapshot_fresh = self._snapshot_is_fresh()
+        if not self.inventory_current or not self.snapshot_fresh:
+            message = (
+                "资源清单已超过有效期，请先刷新；刷新完成前新操作保持锁定。"
+                if not self.snapshot_fresh
+                else "最新资源清单刷新失败，新操作保持锁定；请先刷新。"
+            )
             raise ApiError(
                 409,
                 "inventory_stale",
-                "最新资源清单刷新失败，新操作保持锁定；请先刷新。",
+                message,
             )
         snapshot_id = request.get("snapshotId")
         resource_ids = request.get("resourceIds")
@@ -370,9 +429,11 @@ class ControlState:
             return snapshot
         except ApiError:
             self.inventory_current = False
+            self.snapshot_fresh = False
             raise
         except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
             self.inventory_current = False
+            self.snapshot_fresh = False
             raise ApiError(502, "refresh_failed", "NAS 只读刷新失败。") from exc
         finally:
             self.operation_lock.release()
@@ -567,6 +628,7 @@ class ControlState:
                     "该事务不在当前未完成清单中，请刷新。",
                 )
             self.inventory_current = False
+            self.snapshot_fresh = False
             try:
                 result = self.recovery_runner(
                     plan_id=plan_id,
@@ -641,6 +703,7 @@ class ControlState:
                 latest_inventory = self.inventory()
             except ApiError as exc:
                 self.inventory_current = False
+                self.snapshot_fresh = False
                 raise ApiError(
                     502,
                     "preflight_refresh_failed",
@@ -652,6 +715,7 @@ class ControlState:
                 json.JSONDecodeError,
             ) as exc:
                 self.inventory_current = False
+                self.snapshot_fresh = False
                 raise ApiError(
                     502,
                     "preflight_refresh_failed",
@@ -706,6 +770,7 @@ class ControlState:
                     details={"plan": public_plan(rebuilt)},
                 )
             self.inventory_current = False
+            self.snapshot_fresh = False
             try:
                 result = self.execution_runner(rebuilt)
             except ExecutionError as exc:
@@ -851,6 +916,7 @@ def handler_class(state: ControlState):
                 path = urlparse(self.path).path
                 if path == "/health":
                     config_probe = probe_config(state.config)
+                    freshness = state.freshness_status()
                     self._send_json(
                         200,
                         {
@@ -858,6 +924,7 @@ def handler_class(state: ControlState):
                             "service": "PiNAS Cleanup Control",
                             "executionEnabled": state.execution_enabled,
                             "inventoryCurrent": state.inventory_current,
+                            **freshness,
                             "runtimeMode": state.runtime_mode,
                             "hostName": state.host_name,
                             "configReady": config_probe["ok"],
@@ -878,6 +945,7 @@ def handler_class(state: ControlState):
                     return
                 if path == "/v1/session":
                     origin = self._require_allowed_origin()
+                    freshness = state.freshness_status()
                     self._send_json(
                         200,
                         {
@@ -885,6 +953,7 @@ def handler_class(state: ControlState):
                             "sessionToken": state.session_token,
                             "executionEnabled": state.execution_enabled,
                             "inventoryCurrent": state.inventory_current,
+                            **freshness,
                             "runtimeMode": state.runtime_mode,
                             "hostName": state.host_name,
                         },

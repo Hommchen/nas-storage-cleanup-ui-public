@@ -462,6 +462,67 @@ button {
   background: #a4473f;
 }
 
+.stale-notice {
+  cursor: pointer;
+}
+
+.risk-overview {
+  display: grid;
+  max-width: 1600px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 auto 16px;
+}
+
+.risk-overview-card {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  border: 1px solid #d8e0ea;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+  padding: 12px 13px;
+  box-shadow: 0 8px 22px rgba(44, 62, 92, 0.045);
+}
+
+.risk-overview-card > span {
+  color: #7a879a;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.risk-overview-card > strong {
+  color: var(--forest-dark);
+  font-size: 21px;
+  line-height: 1;
+}
+
+.risk-overview-card > small {
+  overflow: hidden;
+  color: #8c98aa;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.risk-overview-warn {
+  border-color: #ead7bd;
+  background: #fbf4e9;
+}
+
+.risk-overview-warn > strong {
+  color: #9b682b;
+}
+
+.risk-overview-danger {
+  border-color: #e7b7b2;
+  background: #fbeceb;
+}
+
+.risk-overview-danger > strong {
+  color: #a4473f;
+}
+
 .filter-row {
   display: flex;
   max-width: 1600px;
@@ -2228,6 +2289,10 @@ button {
 @media (max-width: 760px) {
   .list-controls {
     flex-wrap: wrap;
+  }
+
+  .risk-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .list-search {

@@ -40,7 +40,9 @@ test("renders the resource list with the final column model", async () => {
   assert.match(html, /<title>NAS 清理台 · PiNAS<\/title>/);
   assert.match(html, /<span>资源<\/span><span>媒体库<\/span><span>做种与保护<\/span>/);
   assert.match(html, /<span>实际占用<\/span><span>完整删除影响<\/span>/);
-  assert.match(html, /仅看无做种限制/);
+  assert.match(html, /仅看无保护约束/);
+  assert.match(html, /资源总览/);
+  assert.match(html, /快照状态/);
   assert.match(html, /名称待确认/);
   assert.doesNotMatch(html, /<span>当前情况<\/span>/);
   assert.doesNotMatch(html, /<span>qB \/ PT<\/span>/);

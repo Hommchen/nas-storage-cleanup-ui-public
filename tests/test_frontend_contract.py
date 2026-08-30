@@ -37,6 +37,20 @@ class FrontendContractTests(unittest.TestCase):
             self.assertIn("共享硬链接影响", source)
             self.assertIn("加入可选关联资源", source)
 
+    def test_both_frontends_show_snapshot_and_risk_state(self):
+        standalone = (PROJECT_ROOT / "app/page.tsx").read_text(encoding="utf-8")
+        plugin = (
+            PROJECT_ROOT / "plugins.v2/storagecleanup/src/components/AppPage.vue"
+        ).read_text(encoding="utf-8")
+
+        for source in (standalone, plugin):
+            self.assertIn("无保护约束", source)
+            self.assertIn("risk-overview", source)
+            self.assertIn("snapshotFresh", source)
+            self.assertIn("有效期", source)
+        self.assertNotIn('item.qbSummary === "无 qB 任务"', standalone)
+        self.assertNotIn("item.qbSummary === '无 qB 任务'", plugin)
+
 
 if __name__ == "__main__":
     unittest.main()

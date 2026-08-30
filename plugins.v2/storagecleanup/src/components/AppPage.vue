@@ -84,7 +84,8 @@ const planMissingFiles = computed(() => (plan.value?.resources || []).flatMap(it
 )))
 const selectedSize = computed(() => selectedItems.value.reduce((total, item) => total + Number(item.size || 0), 0))
 const executionEnabled = computed(() => Boolean(health.value.executionEnabled))
-const inventoryCurrent = computed(() => health.value.inventoryCurrent !== false)
+const snapshotFresh = computed(() => health.value.snapshotFresh !== false)
+const inventoryCurrent = computed(() => health.value.inventoryCurrent !== false && snapshotFresh.value)
 const onboardingRequired = computed(() => !loading.value && (
   !snapshot.value.snapshotId || health.value.configReady === false
 ))
@@ -123,6 +124,22 @@ const hrUnassigned = computed(() => Number(
       0)
     : 0,
 ))
+const riskSummary = computed(() => {
+  const items = resources.value
+  return {
+    total: items.length,
+    imported: items.filter(item => item.library).length,
+    notImported: items.filter(item => !item.library).length,
+    protected: items.filter(item => item.protected).length,
+    shared: items.filter(item => (item.sharedHardlinkResources?.length || 0) > 0).length,
+    review: Number(snapshot.value.stats?.bilingualMissingResources || 0) + Number(snapshot.value.stats?.metadataUnverifiedResources || 0),
+    qbTasks: Number(snapshot.value.stats?.qbTasks || 0),
+    matchedQbTasks: Number(snapshot.value.stats?.matchedQbTasks || 0),
+    unmatchedQbTasks: Number(snapshot.value.stats?.unmatchedQbTasks || 0),
+  }
+})
+const snapshotAgeLabel = computed(() => formatSnapshotAge(snapshot.value.generatedAt))
+const snapshotMaxAgeLabel = computed(() => formatSnapshotLimit(Number(health.value.snapshotMaxAgeSeconds || 3600)))
 const filterGroups = computed(() => FILTER_GROUPS.map(group => ({
   ...group,
   options: group.options
@@ -179,12 +196,29 @@ function payloadError(payload, fallback) {
   return payload?.error?.message || fallback
 }
 
+function formatSnapshotAge(generatedAt) {
+  const timestamp = Date.parse(generatedAt || '')
+  if (!Number.isFinite(timestamp)) return '时间戳无效'
+  const seconds = Math.floor((Date.now() - timestamp) / 1000)
+  if (seconds < 0) return '时间戳晚于本机时钟'
+  if (seconds < 60) return '刚刚更新'
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前更新`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前更新`
+  return `${Math.floor(seconds / 86400)} 天前更新`
+}
+
+function formatSnapshotLimit(seconds) {
+  if (seconds >= 86400 && seconds % 86400 === 0) return `${seconds / 86400} 天`
+  if (seconds >= 3600 && seconds % 3600 === 0) return `${seconds / 3600} 小时`
+  return `${Math.max(1, Math.floor(seconds / 60))} 分钟`
+}
+
 function requestErrorMessage(error, fallback) {
   const response = error?.response || {}
   const payload = response.data || error?.data || {}
   const nested = payload?.error || {}
   if (nested.code === 'inventory_stale' || response.status === 409 || error?.status === 409) {
-    health.value = { ...health.value, inventoryCurrent: false }
+    health.value = { ...health.value, inventoryCurrent: false, snapshotFresh: false }
     return '资源清单已过期，请点击“刷新资源清单”后再操作。浏览器重新加载不会重新核对 NAS。'
   }
   return nested.message || payload.message || error?.message || fallback
@@ -207,7 +241,7 @@ function executionErrorMessage(error, fallback) {
   // refreshed plan when the final preflight found changed task/file state.
   if (nested.plan) plan.value = nested.plan
   if (EXECUTION_STALE_CODES.has(nested.code)) {
-    health.value = { ...health.value, inventoryCurrent: false }
+    health.value = { ...health.value, inventoryCurrent: false, snapshotFresh: false }
     selected.value = []
     if (!nested.plan) plan.value = null
   }
@@ -254,7 +288,7 @@ async function loadStatus() {
       health.value = { ...health.value, inventoryCurrent: false }
       void refreshSnapshot()
     }
-    if (health.value.inventoryCurrent === false) {
+    if (!inventoryCurrent.value) {
       selected.value = []
     }
   } catch (err) {
@@ -273,10 +307,10 @@ async function refreshSnapshot() {
     const payload = await post('/refresh', {})
     if (!payload?.ok || !payload.snapshot) throw new Error(payloadError(payload, '刷新失败。'))
     acceptSnapshot(payload.snapshot)
-    health.value = { ...health.value, inventoryCurrent: true }
+    health.value = { ...health.value, inventoryCurrent: true, snapshotFresh: true }
   } catch (err) {
     error.value = err?.message || '刷新失败，继续显示上次快照。'
-    health.value = { ...health.value, inventoryCurrent: false }
+    health.value = { ...health.value, inventoryCurrent: false, snapshotFresh: false }
   } finally {
     stopRefreshTimer()
     refreshing.value = false
@@ -514,6 +548,7 @@ function handleConfigSaved(config) {
     ...health.value,
     hitAndRunEnabled: config?.hit_and_run_enabled === true,
     inventoryCurrent: false,
+    snapshotFresh: false,
   }
   selected.value = []
   filterState.value = createFilterState()
@@ -536,7 +571,7 @@ onUnmounted(stopRefreshTimer)
         <i>{{ error || !inventoryCurrent ? '!' : '✓' }}</i>
         <p>
           <strong>{{ error || (!inventoryCurrent ? '资源清单待刷新' : executionEnabled ? '执行链路已连接' : '只读模式') }}</strong>
-          <span v-if="snapshot.generatedAt">更新于 {{ snapshot.generatedAt.slice(5, 16).replace('T', ' ') }}</span>
+          <span v-if="snapshot.generatedAt">{{ snapshotAgeLabel }} · {{ snapshot.generatedAt.slice(5, 16).replace('T', ' ') }}</span>
         </p>
       </div>
     </header>
@@ -549,7 +584,7 @@ onUnmounted(stopRefreshTimer)
       <label class="safe-toggle">
         <input v-model="safeOnly" type="checkbox">
         <span />
-        仅看无做种限制
+        仅看无保护约束
       </label>
       <button class="soft-button" type="button" @click="descending = !descending">
         实际占用 {{ descending ? '↓' : '↑' }}
@@ -636,6 +671,29 @@ onUnmounted(stopRefreshTimer)
       <b>查看明细</b>
     </button>
 
+    <section class="risk-overview" aria-label="清理台风险总览">
+      <article class="risk-overview-card">
+        <span>资源总览</span>
+        <strong>{{ riskSummary.total }}</strong>
+        <small>已入库 {{ riskSummary.imported }} · 未入库 {{ riskSummary.notImported }}</small>
+      </article>
+      <article class="risk-overview-card">
+        <span>qB 任务</span>
+        <strong>{{ riskSummary.qbTasks }}</strong>
+        <small>已关联 {{ riskSummary.matchedQbTasks }} · 未关联 {{ riskSummary.unmatchedQbTasks }}</small>
+      </article>
+      <article class="risk-overview-card risk-overview-warn">
+        <span>保护 / 复核</span>
+        <strong>{{ riskSummary.protected }}</strong>
+        <small>共享硬链接 {{ riskSummary.shared }} · 名称/字幕待复核 {{ riskSummary.review }}</small>
+      </article>
+      <article :class="['risk-overview-card', { 'risk-overview-danger': !snapshotFresh }]">
+        <span>快照状态</span>
+        <strong>{{ snapshotFresh ? '新鲜' : '待刷新' }}</strong>
+        <small>{{ snapshotAgeLabel }} · 有效期 {{ snapshotMaxAgeLabel }}</small>
+      </article>
+    </section>
+
     <nav class="filter-panel" aria-label="资源筛选">
       <div v-for="group in filterGroups" :key="group.id" class="filter-row">
         <div class="filter-label">
@@ -676,7 +734,7 @@ onUnmounted(stopRefreshTimer)
           <button v-if="!allFiltersDefault" type="button" @click="clearFilters">清除筛选</button>
         </div>
       </div>
-      <p class="filter-help">同组条件单选；不同组条件按 AND 组合。待处理 / 质量标签可以叠加。</p>
+      <p class="filter-help">同组条件单选；不同组条件按 AND 组合。待处理 / 质量标签可以叠加；无保护约束不等于可直接删除，仍需通过真实预演。</p>
     </nav>
 
     <section class="resource-card">
@@ -1132,6 +1190,29 @@ button { color: inherit; }
 .notice.critical b { color: var(--danger); }
 .stale-notice { cursor: default; }
 .stale-notice button { flex: 0 0 auto; padding: 8px 12px; border: 1px solid rgba(196, 75, 71, .28); border-radius: 9px; background: var(--surface); color: var(--danger); font-weight: 750; cursor: pointer; }
+.risk-overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.risk-overview-card {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, .04);
+}
+.risk-overview-card > span { color: var(--muted); font-size: 11px; font-weight: 750; }
+.risk-overview-card > strong { color: var(--primary); font-size: 21px; line-height: 1; }
+.risk-overview-card > small { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.risk-overview-warn { border-color: rgba(184, 107, 17, .28); background: rgba(184, 107, 17, .07); }
+.risk-overview-warn > strong { color: var(--warn); }
+.risk-overview-danger { border-color: rgba(196, 75, 71, .28); background: rgba(196, 75, 71, .08); }
+.risk-overview-danger > strong { color: var(--danger); }
 .filter-panel {
   display: grid;
   gap: 0;
@@ -1406,6 +1487,9 @@ button { color: inherit; }
   .safe-toggle {
     min-width: 0;
     font-size: 12px;
+  }
+  .risk-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .soft-button { padding: 0 10px; font-size: 12px; }
   .icon-button { width: 40px; }

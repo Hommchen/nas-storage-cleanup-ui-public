@@ -19,6 +19,19 @@ from scripts.configuration import (
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_snapshot_age_window_is_bounded(self):
+        config = default_config()
+        self.assertEqual(config["snapshot_max_age_seconds"], 3600)
+        self.assertEqual(
+            normalize_config(config)["snapshot_max_age_seconds"],
+            3600,
+        )
+        for value in (299, 86401, True, "3600"):
+            with self.subTest(value=value):
+                config["snapshot_max_age_seconds"] = value
+                with self.assertRaises(ConfigurationError):
+                    normalize_config(config)
+
     def test_root_and_parent_traversal_are_rejected(self):
         config = default_config()
         config["allowed_roots"] = ["/"]

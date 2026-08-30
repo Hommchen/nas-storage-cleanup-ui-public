@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import re
 from typing import Any
@@ -27,6 +28,54 @@ FORBIDDEN_PUBLIC_KEYS = {
     "deleteall",
 }
 HASH_RE = re.compile(r"(?i)(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])")
+
+
+def snapshot_age_seconds(
+    snapshot: object,
+    *,
+    now: datetime | None = None,
+) -> int | None:
+    """Return the non-negative age of a snapshot, or None if invalid/future."""
+
+    if not isinstance(snapshot, dict):
+        return None
+    generated_at = snapshot.get("generatedAt")
+    if not isinstance(generated_at, str) or not generated_at.strip():
+        return None
+    try:
+        generated = datetime.fromisoformat(generated_at)
+    except ValueError:
+        return None
+    if generated.tzinfo is None:
+        generated = generated.replace(tzinfo=timezone.utc)
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    age = (
+        reference.astimezone(timezone.utc)
+        - generated.astimezone(timezone.utc)
+    ).total_seconds()
+    if age < 0:
+        return None
+    return int(age)
+
+
+def snapshot_is_fresh(
+    snapshot: object,
+    max_age_seconds: int,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Fail closed when a timestamp cannot prove the snapshot is recent."""
+
+    if (
+        isinstance(max_age_seconds, bool)
+        or not isinstance(max_age_seconds, int)
+        or max_age_seconds < 0
+    ):
+        return False
+    age = snapshot_age_seconds(snapshot, now=now)
+    return age is not None and age <= max_age_seconds
 
 
 def _has_cjk(value: object) -> bool:

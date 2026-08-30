@@ -23,6 +23,12 @@ DEFAULT_UPSTREAM_TIMEOUT_SECONDS = 30
 CONTROL_UPSTREAM_TIMEOUT_SECONDS = 900
 DEFAULT_BRIDGE_NETWORK = "172.17.0.0/16"
 DEFAULT_BRIDGE_TOKEN_FILE = "/run/storage-cleanup/control-token"
+DEFAULT_PUBLIC_ORIGINS = frozenset(
+    {
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    }
+)
 ALLOWED_CLIENTS = (
     ipaddress.ip_network("192.168.3.0/24"),
     ipaddress.ip_network("127.0.0.0/8"),
@@ -93,9 +99,24 @@ def request_allowed(
     bridge_token: str | None,
     bridge_network: str,
     bridge_token_file: str,
+    request_origin: str | None = None,
+    request_referer: str | None = None,
+    sec_fetch_site: str | None = None,
+    public_origins: set[str] | frozenset[str] | None = None,
+    control_path: str = "/",
+    method: str = "GET",
 ) -> bool:
     if client_allowed(address):
-        return True
+        if not is_control:
+            return True
+        return control_browser_request_allowed(
+            request_origin=request_origin,
+            request_referer=request_referer,
+            sec_fetch_site=sec_fetch_site,
+            public_origins=public_origins or DEFAULT_PUBLIC_ORIGINS,
+            control_path=control_path,
+            method=method,
+        )
     if not is_control:
         return False
     return bridge_client_allowed(
@@ -104,6 +125,39 @@ def request_allowed(
         bridge_network=bridge_network,
         bridge_token_file=bridge_token_file,
     )
+
+
+def control_browser_request_allowed(
+    *,
+    request_origin: str | None,
+    request_referer: str | None,
+    sec_fetch_site: str | None,
+    public_origins: set[str] | frozenset[str],
+    control_path: str,
+    method: str,
+) -> bool:
+    """Allow same-origin browser control traffic, not arbitrary LAN scripts.
+
+    Health and the sanitized public snapshot are intentionally readable by
+    monitoring tools. Session/bootstrap and every other control route must
+    carry browser same-origin metadata; MoviePilot bypasses this function via
+    its separately authenticated Docker-bridge token.
+    """
+
+    if method == "GET" and control_path in {"/health", "/v1/snapshot"}:
+        return True
+    origin = (request_origin or "").strip().rstrip("/")
+    if origin:
+        return origin in public_origins
+    referer = (request_referer or "").strip().rstrip("/")
+    if referer:
+        try:
+            referer_origin = urlunsplit((*urlsplit(referer)[:2], "", "", ""))
+        except ValueError:
+            referer_origin = ""
+        if referer_origin in public_origins:
+            return True
+    return (sec_fetch_site or "").strip().lower() == "same-origin"
 
 
 def upstream_timeout(is_control: bool) -> int:
@@ -120,7 +174,12 @@ def handler_class(
     *,
     bridge_network: str = DEFAULT_BRIDGE_NETWORK,
     bridge_token_file: str = DEFAULT_BRIDGE_TOKEN_FILE,
+    public_origin: str | None = None,
 ):
+    public_origins = set(DEFAULT_PUBLIC_ORIGINS)
+    if public_origin:
+        public_origins.add(public_origin.strip().rstrip("/"))
+
     class GatewayHandler(BaseHTTPRequestHandler):
         server_version = "PiNASCleanupGateway/1"
         sys_version = ""
@@ -170,6 +229,12 @@ def handler_class(
                 bridge_token=self.headers.get("X-PiNAS-Bridge-Token"),
                 bridge_network=bridge_network,
                 bridge_token_file=bridge_token_file,
+                request_origin=self.headers.get("Origin"),
+                request_referer=self.headers.get("Referer"),
+                sec_fetch_site=self.headers.get("Sec-Fetch-Site"),
+                public_origins=public_origins,
+                control_path=path,
+                method=self.command,
             ):
                 self._send_error(
                     HTTPStatus.FORBIDDEN,
@@ -281,6 +346,11 @@ def parse_args() -> argparse.Namespace:
         "--bridge-token-file",
         default=DEFAULT_BRIDGE_TOKEN_FILE,
     )
+    parser.add_argument(
+        "--public-origin",
+        default=None,
+        help="Public browser origin served by this gateway, including scheme and port.",
+    )
     return parser.parse_args()
 
 
@@ -293,6 +363,7 @@ def main() -> int:
         handler_class(
             bridge_network=args.bridge_network,
             bridge_token_file=args.bridge_token_file,
+            public_origin=args.public_origin,
         ),
     )
     print(f"PiNAS cleanup gateway listening on http://{args.host}:{args.port}")

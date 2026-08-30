@@ -90,6 +90,85 @@ class GatewayServerTests(unittest.TestCase):
                 )
             )
 
+    def test_control_session_requires_same_origin_browser_metadata(self):
+        settings = {
+            "bridge_network": "172.17.0.0/16",
+            "bridge_token_file": "/missing",
+            "public_origins": {"http://192.0.2.1:3000"},
+        }
+        self.assertFalse(
+            request_allowed(
+                "192.168.3.42",
+                is_control=True,
+                bridge_token=None,
+                control_path="/v1/session",
+                method="GET",
+                **settings,
+            )
+        )
+        self.assertFalse(
+            request_allowed(
+                "192.168.3.42",
+                is_control=True,
+                bridge_token=None,
+                request_origin="https://attacker.invalid",
+                control_path="/v1/session",
+                method="GET",
+                **settings,
+            )
+        )
+        self.assertTrue(
+            request_allowed(
+                "192.168.3.42",
+                is_control=True,
+                bridge_token=None,
+                request_origin="http://192.0.2.1:3000",
+                control_path="/v1/session",
+                method="GET",
+                **settings,
+            )
+        )
+        self.assertTrue(
+            request_allowed(
+                "192.168.3.42",
+                is_control=True,
+                bridge_token=None,
+                request_referer="http://192.0.2.1:3000/storage",
+                control_path="/v1/session",
+                method="GET",
+                **settings,
+            )
+        )
+        self.assertTrue(
+            request_allowed(
+                "192.168.3.42",
+                is_control=True,
+                bridge_token=None,
+                sec_fetch_site="same-origin",
+                control_path="/v1/session",
+                method="GET",
+                **settings,
+            )
+        )
+
+    def test_control_health_and_public_snapshot_remain_read_only_public(self):
+        settings = {
+            "bridge_network": "172.17.0.0/16",
+            "bridge_token_file": "/missing",
+        }
+        for path in ("/health", "/v1/snapshot"):
+            with self.subTest(path=path):
+                self.assertTrue(
+                    request_allowed(
+                        "192.168.3.42",
+                        is_control=True,
+                        bridge_token=None,
+                        control_path=path,
+                        method="GET",
+                        **settings,
+                    )
+                )
+
     def test_lan_access_does_not_require_bridge_token(self):
         self.assertTrue(
             request_allowed(
