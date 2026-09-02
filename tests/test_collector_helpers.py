@@ -155,6 +155,55 @@ class CollectorHelperTests(unittest.TestCase):
 
             self.assertEqual(logical_inode, physical_inode)
 
+    def test_hardlink_accounting_deduplicates_mergerfs_display_aliases(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            logical = root / "media" / "TV"
+            physical = root / "real" / "TV"
+            logical.mkdir(parents=True)
+            physical.mkdir(parents=True)
+            video = physical / "Episode.mkv"
+            video.write_bytes(b"fixture")
+            logical_video = logical / video.name
+
+            inode = (video.stat().st_dev, video.stat().st_ino)
+            previous_aliases = helpers["MEDIA_PHYSICAL_ALIASES"]
+            previous_known_paths = helpers.get("known_paths")
+            helpers["MEDIA_PHYSICAL_ALIASES"] = (
+                (str(logical), str(physical)),
+            )
+            helpers["known_paths"] = {inode: set()}
+            try:
+                helpers["remember_known_path"](inode, logical_video)
+                helpers["remember_known_path"](inode, video)
+                self.assertEqual(helpers["known_paths"][inode], {str(video)})
+            finally:
+                helpers["MEDIA_PHYSICAL_ALIASES"] = previous_aliases
+                if previous_known_paths is None:
+                    helpers.pop("known_paths", None)
+                else:
+                    helpers["known_paths"] = previous_known_paths
+
+    def test_hardlink_accounting_does_not_count_symlink_as_link(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "target.mkv"
+            link = root / "alias.mkv"
+            target.write_bytes(b"fixture")
+            link.symlink_to(target)
+            inode = (target.stat().st_dev, target.stat().st_ino)
+
+            previous_known_paths = helpers.get("known_paths")
+            helpers["known_paths"] = {inode: set()}
+            try:
+                helpers["remember_known_path"](inode, link)
+                self.assertEqual(helpers["known_paths"][inode], set())
+            finally:
+                if previous_known_paths is None:
+                    helpers.pop("known_paths", None)
+                else:
+                    helpers["known_paths"] = previous_known_paths
+
     def test_mergerfs_library_cleanup_uses_backing_paths_for_inode_accounting(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

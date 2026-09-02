@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import AppPage, { c as createLatestPlanApi } from './__federation_expose_AppPage-B0AGi2oG.js';
+import AppPage, { c as createLatestPlanApi } from './__federation_expose_AppPage-CZDAl2zQ.js';
 
 const {unref:_unref,openBlock:_openBlock,createBlock:_createBlock} = await importShared('vue');
 

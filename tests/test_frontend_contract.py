@@ -51,6 +51,18 @@ class FrontendContractTests(unittest.TestCase):
         self.assertNotIn('item.qbSummary === "无 qB 任务"', standalone)
         self.assertNotIn("item.qbSummary === '无 qB 任务'", plugin)
 
+    def test_both_frontends_show_hardlink_evidence_summary(self):
+        standalone = (PROJECT_ROOT / "app/page.tsx").read_text(encoding="utf-8")
+        plugin = (
+            PROJECT_ROOT / "plugins.v2/storagecleanup/src/components/AppPage.vue"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("hardlinkSummary?: string;", standalone)
+        self.assertIn("item.hardlinkSummary", standalone)
+        self.assertIn("item.hardlinkSummary", plugin)
+        self.assertIn("void loadSnapshot();", standalone)
+        self.assertIn("void refreshSnapshot()", plugin)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -390,6 +390,27 @@ class ActionPlannerTests(unittest.TestCase):
             {item["code"] for item in plan["blocks"]},
         )
 
+    def test_delete_without_existing_files_does_not_add_unknown_hardlink_block(self):
+        selected = resource("res_missing", protected=True, all_links_known=False)
+        selected["files"] = []
+        selected["cleanupFiles"][0]["exists"] = False
+        selected["cleanupLinksKnown"] = False
+
+        plan = build_plan(
+            inventory(selected),
+            snapshot_id="snap_test",
+            resource_ids=["res_missing"],
+            mode="delete",
+            acknowledge_site_risk=True,
+            now=NOW,
+        )
+
+        codes = {item["code"] for item in plan["blocks"]}
+        self.assertFalse(plan["canExecute"])
+        self.assertIn("protected_resource", codes)
+        self.assertIn("no_verified_files", codes)
+        self.assertNotIn("unknown_hardlinks", codes)
+
     def test_public_delete_plan_exposes_safe_missing_file_details(self):
         selected = resource(
             "res_missing",
