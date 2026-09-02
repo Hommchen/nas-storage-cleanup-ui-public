@@ -1474,6 +1474,28 @@ def _cleanup_links_complete(records: list[dict[str, Any]]) -> bool:
     )
 
 
+def _hardlink_summary(private: dict[str, Any]) -> str:
+    """Describe the current hard-link evidence without implying safety.
+
+    A qB-only row can legitimately have no existing file after a task was
+    removed or its payload disappeared.  That state is not the same as an
+    existing file whose hard-link set is incomplete, so keep the operator
+    message specific to the evidence available in the snapshot.
+    """
+
+    cleanup_files = private.get("cleanupFiles") or []
+    existing = [record for record in cleanup_files if record.get("exists")]
+    if not existing:
+        return "没有可复核文件"
+    if any(not record.get("regular") for record in existing):
+        return "清理清单含非普通文件"
+    if private.get("allLinksKnown") is not True:
+        return "硬链接集合未完整定位"
+    if private.get("cleanupLinksKnown") is not True:
+        return "硬链接清单待复核"
+    return "全部硬链接已计入"
+
+
 def _merge_private(
     items: list[dict[str, Any]],
     identity: str,
@@ -1858,6 +1880,7 @@ def _merge_group(
         ),
         "size": round(size_gib, 3),
         "sizeLabel": size_label,
+        "hardlinkSummary": _hardlink_summary(private),
         "reclaimLabel": (
             (
                 "完整删除可释放 "

@@ -497,20 +497,23 @@ def build_plan(
         resource_reclaim = 0
         if mode == "delete":
             accounting_complete, resource_reclaim = _inode_accounting(resource)
-            if (
-                not resource.get("allLinksKnown")
-                or not resource.get("cleanupLinksKnown")
-                or not accounting_complete
-            ):
-                _add_reason(
-                    resource_blocks,
-                    "unknown_hardlinks",
-                    "仍有未定位硬链接，无法证明完整删除会安全释放空间。",
-                )
             cleanup_files = resource.get("cleanupFiles") or []
             existing_files = [
                 item for item in cleanup_files if item.get("exists")
             ]
+            if (
+                existing_files
+                and (
+                    not resource.get("allLinksKnown")
+                    or not resource.get("cleanupLinksKnown")
+                    or not accounting_complete
+                )
+            ):
+                _add_reason(
+                    resource_blocks,
+                    "unknown_hardlinks",
+                    "现有文件的硬链接集合未完整核验，无法证明完整删除会安全释放空间。",
+                )
             missing_required_files = [
                 item
                 for item in cleanup_files

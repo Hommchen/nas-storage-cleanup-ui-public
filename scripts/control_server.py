@@ -786,22 +786,16 @@ class ControlState:
                 )
                 raise ApiError(502, exc.code, exc.message) from exc
             self._append_execution_audit(rebuilt, result)
-            snapshot_refresh_pending = False
-            try:
-                self.refresh_runner()
-                self._accept_refreshed_inventory()
-            except ApiError:
-                snapshot_refresh_pending = True
-            except (
-                OSError,
-                subprocess.SubprocessError,
-                json.JSONDecodeError,
-            ):
-                snapshot_refresh_pending = True
+            # Do not make the destructive request wait for a second full NAS
+            # inventory scan.  The remote executor has already revalidated
+            # the selected qB tasks, paths, inodes and transaction state.  A
+            # successful mutation intentionally leaves the inventory stale;
+            # the UI asks for a fresh read-only snapshot separately before
+            # allowing another plan.
             self.plan_cache.clear()
             return {
                 **result,
-                "snapshotRefreshPending": snapshot_refresh_pending,
+                "snapshotRefreshPending": True,
             }
         finally:
             self.operation_lock.release()

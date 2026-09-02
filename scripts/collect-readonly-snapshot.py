@@ -476,6 +476,40 @@ def inode_info(path):
     }
 
 
+def canonical_hardlink_path(path):
+    """Return one physical regular-file path for inode accounting.
+
+    Jellyfin and MoviePilot may expose the same backing file through a
+    mergerfs-facing alias.  Counting that alias as another hard-link path
+    makes an inode with two real directory entries look complete even when
+    one real entry is still outside the inventory.  Symlinks are deliberately
+    excluded: they are validated as non-regular cleanup targets instead of
+    being counted as hard links.
+    """
+
+    original = Path(str(path or ""))
+    try:
+        if original.is_symlink():
+            return None
+    except OSError:
+        return None
+    candidate = physical_media_path(path)
+    try:
+        if candidate.is_symlink() or not candidate.is_file():
+            return None
+    except OSError:
+        return None
+    return str(candidate)
+
+
+def remember_known_path(inode, path):
+    """Record a physical path once, without counting display aliases."""
+
+    canonical = canonical_hardlink_path(path)
+    if canonical:
+        known_paths[inode].add(canonical)
+
+
 def tmdb_api_key(env_text):
     """Resolve the TMDB API key from app.env or the MoviePilot built-in."""
     for raw in str(env_text or "").splitlines():
@@ -1966,7 +2000,7 @@ for key, group in groups.items():
         inode, meta = info
         inode_groups[inode].add(key)
         inode_meta[inode] = meta
-        known_paths[inode].add(text)
+        remember_known_path(inode, path)
         season_match = SEASON_RE.search(text)
         if season_match:
             inode_seasons[inode].add(int(season_match.group(1)))
@@ -2046,7 +2080,7 @@ for row in torrents:
         task_inodes.add(inode)
         task_paths.append(str(path))
         inode_meta.setdefault(inode, meta)
-        known_paths[inode].add(str(path))
+        remember_known_path(inode, path)
     scores = defaultdict(int)
     for inode in task_inodes:
         for key in inode_groups.get(inode, ()):
@@ -2105,7 +2139,8 @@ for row in torrents:
 
 hardlink_paths, hardlink_scan_verified = hardlink_path_index()
 for inode in list(inode_meta):
-    known_paths[inode].update(hardlink_paths.get(inode, ()))
+    for path in hardlink_paths.get(inode, ()):
+        remember_known_path(inode, path)
 
 resources = []
 for group in groups.values():

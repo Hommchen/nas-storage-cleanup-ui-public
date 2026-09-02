@@ -622,6 +622,43 @@ class MediaMetadataTests(unittest.TestCase):
         merged, _ = enrich_and_merge_resources([resource], {})
 
         self.assertEqual(merged[0]["reclaimLabel"], "最多可释放 1.0 GB")
+        self.assertEqual(merged[0]["hardlinkSummary"], "硬链接清单待复核")
+
+    def test_missing_qb_only_payload_is_not_described_as_unknown_hardlink(self):
+        private = private_record(
+            identity="movie:missing-payload",
+            task_hash="m" * 40,
+            path="/allowed/missing-payload.mkv",
+            inode=1201,
+        )
+        private["files"] = []
+        private["cleanupFiles"] = [
+            {
+                "path": "/allowed/missing-payload.mkv",
+                "source": "qb",
+                "allowed": True,
+                "exists": False,
+                "regular": True,
+                "relativeSafe": True,
+                "required": True,
+                "qbExpectedSize": 1024**3,
+                "qbProgress": 1.0,
+            }
+        ]
+        private["allLinksKnown"] = False
+        private["cleanupLinksKnown"] = False
+        resource = raw_resource(
+            resource_id="res_missing_payload",
+            title="缺失 payload",
+            english="Missing Payload",
+            edition="电影",
+            media_type="电影",
+            private=private,
+        )
+
+        merged, _ = enrich_and_merge_resources([resource], {})
+
+        self.assertEqual(merged[0]["hardlinkSummary"], "没有可复核文件")
 
     def test_tv_episode_completeness_stays_unknown_without_expected(self):
         resource = raw_resource(

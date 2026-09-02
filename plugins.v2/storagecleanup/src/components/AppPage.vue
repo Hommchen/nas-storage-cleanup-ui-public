@@ -458,6 +458,7 @@ async function executePlan() {
     }
     if (payload.result.snapshotRefreshPending) {
       health.value = { ...health.value, inventoryCurrent: false }
+      void refreshSnapshot()
     } else {
       const latest = await get('/snapshot')
       if (latest?.snapshot) acceptSnapshot(latest.snapshot)
@@ -808,6 +809,7 @@ onUnmounted(stopRefreshTimer)
         <div class="stack-cell size" data-label="实际占用">
           <strong>{{ item.sizeLabel }}</strong>
           <span>{{ item.reclaimLabel }}</span>
+          <span v-if="item.hardlinkSummary">{{ item.hardlinkSummary }}</span>
         </div>
 
         <div
@@ -975,7 +977,11 @@ onUnmounted(stopRefreshTimer)
             </template>
           </span>
           <span v-if="executeResult.snapshotRefreshPending">
-            {{ planMode === 'delete' ? '已从当前列表移除，请刷新资源清单后继续操作。' : '操作已完成，请刷新资源清单后继续操作。' }}
+            {{ inventoryCurrent
+              ? '资源清单已刷新，可继续操作。'
+              : refreshing
+                ? '正在刷新资源清单，完成后可继续操作。'
+                : '操作已完成；资源清单待刷新，新操作已锁定。' }}
           </span>
           <button type="button" @click="closePlan">完成</button>
         </div>

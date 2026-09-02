@@ -48,6 +48,7 @@ type Resource = {
   size: number;
   sizeLabel: string;
   reclaimLabel: string;
+  hardlinkSummary?: string;
   library: boolean;
   episodeStatus?: string;
   episodeIncomplete?: boolean;
@@ -641,7 +642,9 @@ export default function Home() {
   const selectedSize = selectedItems.reduce((total, item) => total + item.size, 0);
 
   const loadSnapshot = async () => {
+    if (refreshing) return;
     setRefreshing(true);
+    setSnapshotError("");
     try {
       if (controlStatus === "ready" && sessionToken) {
         const response = await fetch(`${CONTROL_API}/v1/refresh`, {
@@ -892,6 +895,7 @@ export default function Home() {
             ? "操作已完成，已从当前列表移除；刷新资源清单后同步其余统计。"
             : "操作已完成，但最新资源清单刷新失败；新操作已锁定。",
         );
+        void loadSnapshot();
       } else {
         try {
           const snapshotResponse = await fetch(`${CONTROL_API}/v1/snapshot`, {
@@ -1426,6 +1430,9 @@ export default function Home() {
                     <div className="size-cell">
                       <strong>{item.sizeLabel}</strong>
                       <span>{item.reclaimLabel}</span>
+                      {item.hardlinkSummary ? (
+                        <span>{item.hardlinkSummary}</span>
+                      ) : null}
                     </div>
 
                     <div
@@ -2019,9 +2026,11 @@ export default function Home() {
                     ? `已清理 ${executeResult.moviepilotIndexesDeleted} 条 MoviePilot 媒体索引。`
                     : ""}
                   {executeResult.snapshotRefreshPending
-                    ? plan?.mode === "delete"
-                      ? " 已从当前列表移除；请刷新资源清单后继续操作。"
-                      : " 操作已完成；请刷新资源清单后继续操作。"
+                    ? inventoryCurrent
+                      ? " 资源清单已刷新，可继续操作。"
+                      : refreshing
+                        ? " 正在刷新资源清单，完成后可继续操作。"
+                        : " 操作已完成；资源清单待刷新，新操作已锁定。"
                     : ""}
                 </span>
                 <button type="button" onClick={closePlan}>

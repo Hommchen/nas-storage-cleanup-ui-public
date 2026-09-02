@@ -737,18 +737,16 @@ class ControlServerTests(unittest.TestCase):
         self.assertEqual(context.exception.code, "plan_expired")
         self.assertEqual(executions, [])
 
-    def test_post_execution_refresh_failure_locks_followup_plans(self):
+    def test_successful_execution_returns_before_post_refresh(self):
         refresh_count = 0
 
-        def flaky_refresh():
+        def refresh():
             nonlocal refresh_count
             refresh_count += 1
-            if refresh_count == 2:
-                raise OSError("post-refresh failed")
 
         state = ControlState(
             project_root=self.root,
-            refresh_runner=flaky_refresh,
+            refresh_runner=refresh,
             execution_runner=lambda plan: {
                 "ok": True,
                 "planId": plan["planId"],
@@ -774,6 +772,7 @@ class ControlServerTests(unittest.TestCase):
         )
 
         self.assertTrue(result["snapshotRefreshPending"])
+        self.assertEqual(refresh_count, 1)
         self.assertFalse(state.inventory_current)
         with self.assertRaises(ApiError) as context:
             state.build_public_plan(
@@ -826,7 +825,8 @@ class ControlServerTests(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertEqual(executions, [public["planId"]])
-        self.assertEqual(len(refreshes), 2)
+        self.assertEqual(len(refreshes), 1)
+        self.assertTrue(result["snapshotRefreshPending"])
         audit = self.root / ".runtime/execution-audit.jsonl"
         self.assertTrue(audit.is_file())
         self.assertEqual(audit.stat().st_mode & 0o777, 0o600)
