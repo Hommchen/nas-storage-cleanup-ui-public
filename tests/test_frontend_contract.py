@@ -63,6 +63,20 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn("void loadSnapshot();", standalone)
         self.assertIn("void refreshSnapshot()", plugin)
 
+    def test_both_frontends_refresh_stale_snapshots_on_entry(self):
+        standalone = (PROJECT_ROOT / "app/page.tsx").read_text(encoding="utf-8")
+        plugin = (
+            PROJECT_ROOT / "plugins.v2/storagecleanup/src/components/AppPage.vue"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("const snapshotNeedsRefresh =", standalone)
+        self.assertIn(
+            "void loadSnapshotRef.current(payload.sessionToken, \"ready\");",
+            standalone,
+        )
+        self.assertIn("const staleOnLoad = !inventoryCurrent.value", plugin)
+        self.assertIn("if (staleOnLoad || hrConfigurationChanged)", plugin)
+
 
 if __name__ == "__main__":
     unittest.main()

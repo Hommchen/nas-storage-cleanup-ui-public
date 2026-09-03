@@ -411,6 +411,10 @@ export default function Home() {
   const [protectionGapError, setProtectionGapError] = useState("");
   const [clock, setClock] = useState(() => Date.now());
   const planRequestSequence = useRef(0);
+  const loadSnapshotRef = useRef<((
+    refreshSessionToken?: string,
+    refreshControlStatus?: ControlStatus,
+  ) => Promise<void>) | null>(null);
 
   const acceptSnapshot = useCallback((nextSnapshot: Snapshot) => {
     if (
@@ -499,6 +503,16 @@ export default function Home() {
                   : "无法读取资源清单",
               );
             }
+          }
+        }
+        const snapshotNeedsRefresh =
+          payload.inventoryCurrent === false || payload.snapshotFresh === false;
+        if (!cancelled && snapshotNeedsRefresh) {
+          // A stale snapshot remains visible for auditability, but it must not
+          // back a plan. Refresh it automatically on page entry instead of
+          // leaving the standalone console locked until a manual click.
+          if (loadSnapshotRef.current) {
+            void loadSnapshotRef.current(payload.sessionToken, "ready");
           }
         }
       } catch (error) {
@@ -641,18 +655,21 @@ export default function Home() {
   const selectedItems = resources.filter((item) => selected.includes(item.id));
   const selectedSize = selectedItems.reduce((total, item) => total + item.size, 0);
 
-  const loadSnapshot = async () => {
+  const loadSnapshot = async (
+    refreshSessionToken = sessionToken,
+    refreshControlStatus = controlStatus,
+  ) => {
     if (refreshing) return;
     setRefreshing(true);
     setSnapshotError("");
     try {
-      if (controlStatus === "ready" && sessionToken) {
+      if (refreshControlStatus === "ready" && refreshSessionToken) {
         const response = await fetch(`${CONTROL_API}/v1/refresh`, {
           method: "POST",
           cache: "no-store",
           headers: {
             "Content-Type": "application/json",
-            "X-PiNAS-Session": sessionToken,
+            "X-PiNAS-Session": refreshSessionToken,
           },
           body: "{}",
         });
@@ -676,7 +693,7 @@ export default function Home() {
         acceptSnapshot(await parseJsonResponse<Snapshot>(response));
       }
     } catch (error) {
-      if (controlStatus === "ready") {
+      if (refreshControlStatus === "ready") {
         setInventoryCurrent(false);
         setSnapshotFresh(false);
       }
@@ -689,6 +706,7 @@ export default function Home() {
       setRefreshing(false);
     }
   };
+  loadSnapshotRef.current = loadSnapshot;
 
   const requestPlan = async (
     mode: ActionMode,
