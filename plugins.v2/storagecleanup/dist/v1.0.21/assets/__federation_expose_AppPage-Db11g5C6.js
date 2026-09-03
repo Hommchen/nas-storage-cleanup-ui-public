@@ -706,15 +706,20 @@ async function loadStatus() {
     if (!payload?.ok || !payload.snapshot) throw new Error(payloadError(payload, '无法读取清理台状态。'))
     health.value = payload.health || {};
     acceptSnapshot(payload.snapshot);
-    if (
+    const hrConfigurationChanged = (
       typeof health.value.hitAndRunEnabled === 'boolean'
       && payload.snapshot.stats?.hrEnabled !== health.value.hitAndRunEnabled
-    ) {
+    );
+    if (hrConfigurationChanged) {
       health.value = { ...health.value, inventoryCurrent: false };
-      void refreshSnapshot();
     }
-    if (!inventoryCurrent.value) {
+    const staleOnLoad = !inventoryCurrent.value;
+    if (staleOnLoad || hrConfigurationChanged) {
       selected.value = [];
+      // A stale snapshot is safe to display but cannot back a cleanup plan.
+      // Start the same read-only refresh as the explicit button so opening
+      // the MoviePilot plugin does not look like a permanently locked page.
+      void refreshSnapshot();
     }
   } catch (err) {
     error.value = err?.message || '无法读取清理台状态。';
@@ -1663,6 +1668,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f49c756a"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2dad105b"]]);
 
 export { createLatestPlanApi as c, AppPage as default };

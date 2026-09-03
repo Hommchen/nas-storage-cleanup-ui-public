@@ -56,7 +56,7 @@ class MoviePilotPluginTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["StorageCleanup"]["system_version"], ">=2.14.6")
-        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.21")
+        self.assertEqual(manifest["StorageCleanup"]["version"], "1.0.22")
         self.assertIn("自动发现 MoviePilot", manifest["StorageCleanup"]["description"])
         self.assertIn(
             "一键清理全链路耦合",
@@ -87,7 +87,7 @@ class MoviePilotPluginTests(unittest.TestCase):
             (PLUGIN_ROOT / "__init__.py").read_text(encoding="utf-8"),
         )
         self.assertTrue(
-            (PLUGIN_ROOT / "dist/v1.0.21/assets/remoteEntry.js").is_file()
+            (PLUGIN_ROOT / "dist/v1.0.22/assets/remoteEntry.js").is_file()
         )
 
     def test_bridge_uses_token_only_in_internal_headers(self):
@@ -152,7 +152,7 @@ class MoviePilotPluginTests(unittest.TestCase):
         )
 
         remote_entry = (
-            PLUGIN_ROOT / "dist/v1.0.21/assets/remoteEntry.js"
+            PLUGIN_ROOT / "dist/v1.0.22/assets/remoteEntry.js"
         ).read_text(encoding="utf-8")
         config_asset = re.search(
             r"__federation_expose_Config-[A-Za-z0-9_-]+\.js",
@@ -161,11 +161,24 @@ class MoviePilotPluginTests(unittest.TestCase):
         self.assertIsNotNone(config_asset)
         config_bundle = (
             PLUGIN_ROOT
-            / "dist/v1.0.21/assets"
+            / "dist/v1.0.22/assets"
             / config_asset.group(0)
         ).read_text(encoding="utf-8")
         self.assertIn("function apiErrorMessage(err, fallback)", config_bundle)
         self.assertGreaterEqual(config_bundle.count("apiErrorMessage(err,"), 4)
+
+        app_asset = re.search(
+            r"__federation_expose_AppPage-[A-Za-z0-9_-]+\.js",
+            remote_entry,
+        )
+        self.assertIsNotNone(app_asset)
+        app_bundle = (
+            PLUGIN_ROOT
+            / "dist/v1.0.22/assets"
+            / app_asset.group(0)
+        ).read_text(encoding="utf-8")
+        self.assertIn("staleOnLoad", app_bundle)
+        self.assertIn("refreshSnapshot", app_bundle)
 
     def test_vue_page_exposes_all_three_execution_levels(self):
         source = (PLUGIN_ROOT / "src/provider.js").read_text(encoding="utf-8")
