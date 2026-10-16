@@ -520,11 +520,22 @@ def tmdb_api_key(env_text):
     return DEFAULT_TMDB_API_KEY
 
 
+def _strip_env_quotes(value):
+    """Strip one layer of matching dotenv quotes, if present."""
+
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        return value[1:-1]
+    return value
+
+
 def moviepilot_env_settings():
     """Return (api_key, proxy) from the MoviePilot app.env; never raise.
 
-    The file lives next to the MoviePilot user.db.  A missing or unreadable
-    file yields empty values so callers fall back to their defaults.
+    The file lives next to the MoviePilot user.db and uses dotenv syntax,
+    so values may carry surrounding quotes; they are stripped here because
+    the raw text would break urllib proxy URLs ("nonnumeric port").  A
+    missing or unreadable file yields empty values so callers fall back to
+    their defaults.
     """
 
     env_path = Path(MOVIEPILOT_DB).parent / "app.env"
@@ -537,9 +548,9 @@ def moviepilot_env_settings():
     for raw in env_text.splitlines():
         line = raw.strip()
         if line.startswith("TMDB_API_KEY="):
-            api_key = line.split("=", 1)[1].strip()
+            api_key = _strip_env_quotes(line.split("=", 1)[1].strip())
         elif line.startswith("PROXY_HOST="):
-            proxy = line.split("=", 1)[1].strip()
+            proxy = _strip_env_quotes(line.split("=", 1)[1].strip())
     return api_key, proxy
 
 

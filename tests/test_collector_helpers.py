@@ -983,6 +983,36 @@ class HitAndRunFetchTests(unittest.TestCase):
             self.assertEqual(api_key, "test-key")
             self.assertEqual(proxy, "http://172.17.0.1:11082")
 
+    def test_moviepilot_env_settings_strips_dotenv_quotes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            config = root / "config"
+            config.mkdir()
+            (config / "app.env").write_text(
+                "TMDB_API_KEY='quoted-key'\n"
+                'PROXY_HOST="http://172.17.0.1:11082"\n',
+                encoding="utf-8",
+            )
+            helpers["MOVIEPILOT_DB"] = config / "user.db"
+
+            api_key, proxy = helpers["moviepilot_env_settings"]()
+
+            self.assertEqual(api_key, "quoted-key")
+            self.assertEqual(proxy, "http://172.17.0.1:11082")
+
+    def test_moviepilot_env_settings_empty_quoted_value_is_empty(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            config = root / "config"
+            config.mkdir()
+            (config / "app.env").write_text(
+                "TMDB_API_KEY=''\nPROXY_HOST=''\n",
+                encoding="utf-8",
+            )
+            helpers["MOVIEPILOT_DB"] = config / "user.db"
+
+            self.assertEqual(helpers["moviepilot_env_settings"](), ("", ""))
+
     def test_moviepilot_env_settings_missing_file_yields_empty(self):
         with tempfile.TemporaryDirectory() as temporary:
             helpers["MOVIEPILOT_DB"] = (
