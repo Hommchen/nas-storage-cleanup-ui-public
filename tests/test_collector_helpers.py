@@ -9,6 +9,7 @@ from pathlib import Path
 import runpy
 import tempfile
 import unittest
+from urllib.error import URLError
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -863,6 +864,132 @@ class CollectorHelperTests(unittest.TestCase):
                 helpers["unresolved_transactions"](),
                 ["plan_orphan", "plan_quarantined", "plan_uncertain"],
             )
+
+
+class HitAndRunFetchTests(unittest.TestCase):
+    """H&R fetches retry directly, then through the configured proxy."""
+
+    class _Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def read(self):
+            return self._payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exception):
+            return False
+
+    def _fake_build_opener(self, behaviours):
+        """Return (build_opener, calls) recording each attempt in order."""
+
+        calls = []
+
+        def build_opener(handler=None):
+            class _Opener:
+                def open(self, request, timeout=None):
+                    calls.append(
+                        {"proxied": handler is not None, "timeout": timeout}
+                    )
+                    behaviour = behaviours[len(calls) - 1]
+                    if isinstance(behaviour, Exception):
+                        raise behaviour
+                    return behaviour
+
+            return _Opener()
+
+        return build_opener, calls
+
+    def setUp(self):
+        self._real_build_opener = helpers["build_opener"]
+        self._real_sleep = helpers["time"].sleep
+        self._real_db = helpers["MOVIEPILOT_DB"]
+        helpers["time"].sleep = lambda _seconds: None
+
+    def tearDown(self):
+        helpers["build_opener"] = self._real_build_opener
+        helpers["time"].sleep = self._real_sleep
+        helpers["MOVIEPILOT_DB"] = self._real_db
+
+    def test_direct_success_never_touches_proxy(self):
+        response = self._Response(b"ok")
+        build_opener, calls = self._fake_build_opener([response])
+        helpers["build_opener"] = build_opener
+
+        body = helpers["fetch_hr_bytes"](
+            "request", timeout=25, proxy="http://127.0.0.1:1"
+        )
+
+        self.assertEqual(body, b"ok")
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(calls[0]["proxied"])
+        self.assertEqual(calls[0]["timeout"], 25)
+
+    def test_proxy_retry_after_direct_handshake_failure(self):
+        response = self._Response(b"ok")
+        build_opener, calls = self._fake_build_opener(
+            [URLError("handshake timed out"), response]
+        )
+        helpers["build_opener"] = build_opener
+
+        body = helpers["fetch_hr_bytes"](
+            "request", timeout=25, proxy="http://127.0.0.1:11082"
+        )
+
+        self.assertEqual(body, b"ok")
+        self.assertEqual([call["proxied"] for call in calls], [False, True])
+
+    def test_without_proxy_every_attempt_stays_direct(self):
+        response = self._Response(b"ok")
+        build_opener, calls = self._fake_build_opener(
+            [URLError("first failure"), response]
+        )
+        helpers["build_opener"] = build_opener
+
+        body = helpers["fetch_hr_bytes"]("request", timeout=25)
+
+        self.assertEqual(body, b"ok")
+        self.assertEqual([call["proxied"] for call in calls], [False, False])
+
+    def test_all_attempts_failing_raises_last_error(self):
+        build_opener, calls = self._fake_build_opener(
+            [URLError("handshake timed out")] * 3
+        )
+        helpers["build_opener"] = build_opener
+
+        with self.assertRaises(URLError):
+            helpers["fetch_hr_bytes"](
+                "request", timeout=25, proxy="http://127.0.0.1:11082"
+            )
+
+        self.assertEqual(len(calls), 3)
+        self.assertEqual([call["proxied"] for call in calls], [False, True, True])
+
+    def test_moviepilot_env_settings_reads_key_and_proxy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            config = root / "config"
+            config.mkdir()
+            (config / "app.env").write_text(
+                "TMDB_API_KEY=test-key\nPROXY_HOST=http://172.17.0.1:11082\n",
+                encoding="utf-8",
+            )
+            helpers["MOVIEPILOT_DB"] = config / "user.db"
+
+            api_key, proxy = helpers["moviepilot_env_settings"]()
+
+            self.assertEqual(api_key, "test-key")
+            self.assertEqual(proxy, "http://172.17.0.1:11082")
+
+    def test_moviepilot_env_settings_missing_file_yields_empty(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            helpers["MOVIEPILOT_DB"] = (
+                Path(temporary).resolve() / "config" / "user.db"
+            )
+
+            self.assertEqual(helpers["moviepilot_env_settings"](), (None, None))
 
 
 if __name__ == "__main__":

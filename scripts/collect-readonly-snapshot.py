@@ -520,13 +520,13 @@ def tmdb_api_key(env_text):
     return DEFAULT_TMDB_API_KEY
 
 
-def tmdb_season_counts(tmdb_id):
-    """Return {season_number: episode_count} for a TMDB series, or None.
+def moviepilot_env_settings():
+    """Return (api_key, proxy) from the MoviePilot app.env; never raise.
 
-    The API key is read from the MoviePilot app.env next to its user.db and
-    is only used for this request; it is never printed or persisted.  The
-    request goes through the MoviePilot proxy when app.env configures one.
+    The file lives next to the MoviePilot user.db.  A missing or unreadable
+    file yields empty values so callers fall back to their defaults.
     """
+
     env_path = Path(MOVIEPILOT_DB).parent / "app.env"
     api_key = None
     proxy = None
@@ -540,6 +540,17 @@ def tmdb_season_counts(tmdb_id):
             api_key = line.split("=", 1)[1].strip()
         elif line.startswith("PROXY_HOST="):
             proxy = line.split("=", 1)[1].strip()
+    return api_key, proxy
+
+
+def tmdb_season_counts(tmdb_id):
+    """Return {season_number: episode_count} for a TMDB series, or None.
+
+    The API key is read from the MoviePilot app.env next to its user.db and
+    is only used for this request; it is never printed or persisted.  The
+    request goes through the MoviePilot proxy when app.env configures one.
+    """
+    api_key, proxy = moviepilot_env_settings()
     api_key = api_key or DEFAULT_TMDB_API_KEY
     url = (
         "https://api.themoviedb.org/3/tv/"
@@ -600,19 +611,7 @@ def tmdb_season_episodes(tmdb_id, season_number, tmdb_cache):
             if episodes:
                 return episodes
 
-    env_path = Path(MOVIEPILOT_DB).parent / "app.env"
-    api_key = None
-    proxy = None
-    try:
-        env_text = env_path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        env_text = ""
-    for raw in env_text.splitlines():
-        line = raw.strip()
-        if line.startswith("TMDB_API_KEY="):
-            api_key = line.split("=", 1)[1].strip()
-        elif line.startswith("PROXY_HOST="):
-            proxy = line.split("=", 1)[1].strip()
+    api_key, proxy = moviepilot_env_settings()
     api_key = api_key or DEFAULT_TMDB_API_KEY
     url = (
         "https://api.themoviedb.org/3/tv/"
@@ -1053,13 +1052,26 @@ HR_MANIFEST_CACHE_TTL = 24 * 60 * 60
 HR_FETCH_ATTEMPTS = 3
 
 
-def fetch_hr_bytes(request, timeout):
-    """Fetch a site response with bounded retries; never invent a result."""
+def fetch_hr_bytes(request, timeout, proxy=None):
+    """Fetch a site response with bounded retries; never invent a result.
+
+    The first attempt goes direct.  When a MoviePilot proxy is configured,
+    the remaining attempts reuse it: some NexusPHP hosts sit on paths where
+    a direct TLS handshake stalls for the full timeout while the same request
+    through the local proxy answers in seconds.  Any exhausted retry still
+    raises, so the caller keeps its fail-closed H&R protection; this only
+    widens which routes count as a genuine read.
+    """
 
     last_error = None
     for attempt in range(HR_FETCH_ATTEMPTS):
+        opener = (
+            build_opener(ProxyHandler({"http": proxy, "https": proxy}))
+            if proxy and attempt > 0
+            else build_opener()
+        )
         try:
-            with urlopen(request, timeout=timeout) as response:
+            with opener.open(request, timeout=timeout) as response:
                 return response.read()
         except Exception as error:
             last_error = error
@@ -1235,6 +1247,7 @@ def btschool_hr_records(torrents, site_config=None):
                 validated,
             )
         base_url, cookie, user_agent = row
+        _, proxy = moviepilot_env_settings()
         headers = {
             "Cookie": str(cookie or ""),
             "User-Agent": str(user_agent or "Mozilla/5.0"),
@@ -1245,7 +1258,7 @@ def btschool_hr_records(torrents, site_config=None):
                 headers=headers,
             )
             try:
-                body = fetch_hr_bytes(request, timeout=25).decode(
+                body = fetch_hr_bytes(request, timeout=25, proxy=proxy).decode(
                     "utf-8", "ignore"
                 )
             except Exception as error:
